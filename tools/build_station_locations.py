@@ -3,7 +3,7 @@
 依備註欄的站號比對：
   氣象署 CODiS 測站清單 https://codis.cwa.gov.tw/api/station_list（WGS84 經緯度）
   水利署所屬雨量站基本資料 https://data.gov.tw/dataset/32729（TWD97 TM2，轉 WGS84）
-備註含「代」者表示 Horner 參數取自代表站，地圖上標在代表站位置。
+備註以「代)」結尾者表示 Horner 參數取自代表站，地圖上標在代表站位置。
 """
 import json
 import os
@@ -49,7 +49,7 @@ def main():
             miss.append(name); continue
         gid, agency, gname, lat, lng, alt = hit
         stloc[name] = {"gid": gid, "gname": gname, "agency": agency, "lat": round(lat, 6), "lng": round(lng, 6),
-                       "alt": alt, "sub": "代" in note}
+                       "alt": alt, "sub": bool(re.search(r"代\)", note))}  # 「…站代)」才是代表站替代；「代表站)」不算
     d["stloc"] = stloc
     json.dump(d, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
     print(f"定位 {len(stloc)} 站，未定位 {len(miss)} 站：{miss}")

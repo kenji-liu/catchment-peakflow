@@ -78,6 +78,9 @@ const Terrain3D = (() => {
       ctx.closePath(); ctx.fillStyle = 'rgba(10,20,25,0.22)'; ctx.fill('evenodd'); ctx.restore();
     }
     for (const s of p.streams || []) { path(s); ctx.strokeStyle = COLORS.stream; ctx.lineWidth = lw * 0.55; ctx.stroke(); }
+    ctx.save(); ctx.setLineDash([lw * 4, lw * 3]);
+    for (const c of p.cells || []) { path(c); ctx.closePath(); ctx.strokeStyle = COLORS.station; ctx.lineWidth = lw * 0.9; ctx.stroke(); }
+    ctx.restore();
     if (p.poly && p.poly.length > 2) {
       path(p.poly); ctx.closePath();
       ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = lw * 2.2; ctx.stroke();

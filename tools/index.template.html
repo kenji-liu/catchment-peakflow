@@ -28,6 +28,7 @@
   --river-soft: rgba(82,178,208,.16); color-scheme: dark }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 14px/1.55 var(--font-body); padding: 0 16px 32px; }
 h1, h2, h3 { margin: 0; text-wrap: balance; }
@@ -159,7 +160,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 <header class="top">
   <div>
     <h1>集水區洪峰流量圖台</h1>
-    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v17</div>
+    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v18</div>
   </div>
   <div class="spacer"></div>
   <label class="btn" for="xlsxFile" title="讀取 v17 活頁簿的雨量、雨型、IDF 與主控台參數">載入 Excel</label>
@@ -237,7 +238,9 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
         <div class="field"><label for="f_L">主流長度 L (km)</label><input id="f_L" type="number" step="any" min="0"><span class="from-map" id="mapL"></span></div>
         <div class="field"><label for="f_H">最高最低點落差 H (m)</label><input id="f_H" type="number" step="any" min="0"></div>
         <div class="field"><label for="f_C">逕流係數 C</label><input id="f_C" type="number" step="0.01" min="0" max="1"></div>
-        <div class="field wide"><label for="f_station">Horner 雨量站</label><select id="f_station"></select><div class="st-info" id="stInfo"></div></div>
+        <div class="field"><label for="f_rain">雨量站加權</label><select id="f_rain"><option value="thiessen">徐昇式多站加權 (依集水區)</option><option value="single">單站</option></select></div>
+        <div class="field"><label for="f_station">Horner 雨量站（單站用）</label><select id="f_station"></select></div>
+        <div class="field wide"><div class="st-info" id="stInfo"></div></div>
         <div class="field"><label for="f_method">採用方法</label>
           <select id="f_method">
             <option value="auto">依面積自動判定 (≤1000 ha 合理化)</option>
@@ -251,12 +254,13 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
       <details class="more">
         <summary>進階參數（全部控制點共用）</summary>
         <div class="form">
+          <div class="field wide"><label for="g_pat">設計雨型</label><select id="g_pat"><option value="horner">Horner 公式交替區塊法（依雨量站，預設）</option><option value="fixed">固定雨型（Excel 203144 案比例）</option></select></div>
           <div class="field"><label for="g_k">一日暴雨 → 24 hr 轉換係數 k</label><input id="g_k" type="number" step="0.01" min="0.5"></div>
           <div class="field"><label for="g_tc1">坡面集流時間 Tc1 (hr，TUH 用)</label><input id="g_tc1" type="number" step="0.01" min="0"></div>
           <div class="field"><label for="g_alpha">高含砂增量比 α</label><input id="g_alpha" type="number" step="0.01" min="0"></div>
           <div class="field"><label for="g_cd">土石流體積濃度 Cd</label><input id="g_cd" type="number" step="0.01" min="0" max="0.9"></div>
         </div>
-        <p class="small muted" style="margin:10px 0 0">雨型採 D = 0.15 hr（9 分鐘）Horner 24 小時雨型，共 160 時階；一日暴雨序列在右側「雨量資料」分頁編修。</p>
+        <p class="small muted" style="margin:10px 0 0">雨型時距 D = 0.15 hr（9 分鐘），共 160 時階：由 Horner 公式求 24 小時累積雨量曲線 P(t) = I(t)·t/60，切成區塊後以交替區塊法排列（最大區塊在 12:00～12:09），再乘以頻率分析的 R24。一日暴雨序列在右側「雨量資料」分頁編修。</p>
       </details>
     </section>
   </div>
@@ -327,6 +331,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6.0.4/dist/d3-delaunay.min.js"></script>
 <script src="dem.js"></script>
 <script src="terrain3d.js"></script>
 <script>
@@ -378,11 +383,42 @@ function frequency(rain) {
   return { n, s, sl, dists: D, best: ranked[0], obs };
 }
 
-function horner(st, T, tmin) {
-  const set = { '25': [st.a25, st.b25, st.c25], '50': [st.a50, st.b50, st.c50], '100': [st.a100, st.b100, st.c100] };
-  const fac = { 2: [0.6, '25'], 5: [0.74, '25'], 10: [0.85, '25'], 20: [0.95, '25'], 25: [1, '25'], 50: [1, '50'], 100: [1, '100'], 200: [1.12, '100'] }[T];
-  const [a, b, c] = set[fac[1]];
-  return fac[0] * a / Math.pow(tmin + b, c);
+// 各重現期使用的 Horner 參數組與倍數 (同 Excel：2～20 年以 25 年參數折減、200 年以 100 年參數放大)
+const HSET = { 2: [0.6, '25'], 5: [0.74, '25'], 10: [0.85, '25'], 20: [0.95, '25'], 25: [1, '25'], 50: [1, '50'], 100: [1, '100'], 200: [1.12, '100'] };
+const abc = (st, set) => set === '25' ? [st.a25, st.b25, st.c25] : set === '50' ? [st.a50, st.b50, st.c50] : [st.a100, st.b100, st.c100];
+// src = [{ st, w }]：單站時 w = 1；徐昇式時為各站面積權重。面積平均降雨強度 = Σ w·a/(t+b)^c
+function hornerI(src, set, tmin) {
+  let s = 0;
+  for (const { st, w } of src) { const [a, b, c] = abc(st, set); if (w) s += w * a / Math.pow(tmin + b, c); }
+  return s;
+}
+function horner(src, T, tmin) { const [f, set] = HSET[T]; return f * hornerI(src, set, tmin); }
+// 24 小時 Horner 雨型 (交替區塊法)：P(t) = I(t)·t/60，切成 n 個 dt 分鐘區塊，
+// 最大區塊置於第 floor(n/2)+1 格，其餘依序右、左交替排列；回傳各區塊佔 24 小時雨量的比例
+function hornerPattern(src, T, n = 160, dt = 9) {
+  const set = HSET[T][1], P = t => t > 0 ? hornerI(src, set, t) * t / 60 : 0, tot = P(n * dt);
+  const inc = []; for (let k = 1; k <= n; k++) inc.push((P(k * dt) - P((k - 1) * dt)) / tot);
+  const m = Math.floor(n / 2) + 1, out = new Array(n);
+  for (let j = 1; j <= n; j++) out[j - 1] = inc[(j === m ? 1 : j > m ? 2 * (j - m) : Math.min(2 * (m - j) + 1, n)) - 1];
+  return out;
+}
+// 徐昇式多邊形：在集水區內規則取樣，每個樣點歸給最近的雨量站 (平面座標，公尺)
+function thiessenCounts(poly, gauges, n = 220) {
+  const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const h = Math.max(x1 - x0, y1 - y0) / n, cnt = new Array(gauges.length).fill(0);
+  for (let y = y0 + h / 2; y < y1; y += h) for (let x = x0 + h / 2; x < x1; x += h) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    if (!inside) continue;
+    let best = 0, bd = Infinity;
+    gauges.forEach((g, k) => { const d = (g[0] - x) ** 2 + (g[1] - y) ** 2; if (d < bd) { bd = d; best = k; } });
+    cnt[best]++;
+  }
+  return cnt;
 }
 
 function triUH(Tp, Tb, qp, n) {
@@ -401,13 +437,14 @@ function convolve(P, U) {
   return out;
 }
 
-function compute(pt, g, data) {
+function compute(pt, g, data, src) {
   const A = +pt.A, Akm = A / 100, L = +pt.L, Hk = +pt.H / 1000, C = +pt.C;
-  const st = data.idf.find(r => r.name === pt.station) || data.idf[0];
+  src = src || [{ st: data.idf.find(r => r.name === pt.station) || data.idf[0], w: 1 }];
+  const st = src.reduce((a, b) => (b.w > a.w ? b : a)).st; // 權重最大的雨量站 (供檢核訊息用)
   const W = 72 * Math.pow(Hk / L, 0.6), tc = L / W, tcMin = tc * 60;
   const fr = frequency(data.rain.map(r => r[1]));
   const R1 = fr.best.design, R24 = R1.map(v => v * g.k);
-  const I = TS.map(T => horner(st, T, tcMin));
+  const I = TS.map(T => horner(src, T, tcMin));
   const Qr = I.map(i => C * i * A / 360);
 
   const scs = { Tp: DT / 2 + 0.6 * tc }; scs.Tb = 2.67 * scs.Tp; scs.qp = 0.208 * Akm / scs.Tp;
@@ -418,9 +455,10 @@ function compute(pt, g, data) {
   const vol = U => U.reduce((s, v) => s + v, 0) * DT * 3600 / (A * 10);
   scs.vol = vol(scs.U); tuh.vol = vol(tuh.U);
 
-  const pat = data.pattern;
-  const hydro = R24.map(r => {
-    const P = pat.map(b => b * r), Pe = P.map(p => p * C);
+  // 雨型：預設依 Horner 公式 (單站或徐昇加權) 以交替區塊法產生；選「固定雨型」則沿用 Excel 203144 案比例
+  const pats = TS.map(T => g.patMode === 'fixed' ? data.pattern : hornerPattern(src, T));
+  const hydro = R24.map((r, i) => {
+    const P = pats[i].map(b => b * r), Pe = P.map(p => p * C);
     return { P, Pe, scs: convolve(Pe, scs.U), tuh: convolve(Pe, tuh.U) };
   });
   const Qs = hydro.map(h => Math.max(...h.scs)), Qt = hydro.map(h => Math.max(...h.tuh));
@@ -430,7 +468,7 @@ function compute(pt, g, data) {
   const Qa = { rational: Qr, scs: Qs, tuh: Qt }[method];
   const Qhs = Qr.map(q => q * (1 + g.alpha));
   const Qdf = pt.debris ? Qr.map(q => q / (1 - g.cd)) : null;
-  return { A, Akm, L, H: +pt.H, C, st, W, tc, tcMin, fr, R1, R24, I, Qr, scs, tuh, Tc, hydro, Qs, Qt, method, Qa, Qhs, Qdf };
+  return { A, Akm, L, H: +pt.H, C, st, src, W, tc, tcMin, fr, R1, R24, I, Qr, scs, tuh, Tc, pats, hydro, Qs, Qt, method, Qa, Qhs, Qdf };
 }
 // ===== ENGINE END =====
 
@@ -443,12 +481,15 @@ const data = {
   idf: DEFAULTS.idf.map(r => ({ region: r[0], name: r[1], a25: r[2], b25: r[3], c25: r[4], a50: r[5], b50: r[6], c50: r[7], a100: r[8], b100: r[9], c100: r[10], note: r[11] || '' })),
   stloc: DEFAULTS.stloc || {}, // IDF 站名 → 實際雨量站座標 (tools/build_station_locations.py)
 };
-const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3 };
+const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3, patMode: 'horner' };
+proj4.defs('TM2', '+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +units=m +no_defs');
+const toTM = (lat, lng) => proj4('EPSG:4326', 'TM2', [lng, lat]);
+const fromTM = (x, y) => { const q = proj4('TM2', 'EPSG:4326', [x, y]); return [q[1], q[0]]; };
 let firstVisit = true;
 let points = [{
   id: 'p1', name: DEFAULTS.inp.B5, lat: DEFAULTS.pt[0], lng: DEFAULTS.pt[1], demo: false,
   A: DEFAULTS.inp.B7, L: DEFAULTS.inp.B8, H: DEFAULTS.inp.B9, C: DEFAULTS.inp.B10,
-  station: DEFAULTS.inp.B6, method: 'auto', debris: true, poly: null, line: null,
+  station: DEFAULTS.inp.B6, rainMode: 'thiessen', method: 'auto', debris: true, poly: null, line: null,
 }];
 let selId = 'p1', selT = 50, win = 'peak';
 
@@ -502,6 +543,7 @@ const bases = {
   osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }),
 };
 let base = bases.emap.addTo(map);
+new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map')); // 版面寬度變動 (字型載入、換行) 時重算地圖尺寸
 $('basemap').onchange = e => { map.removeLayer(base); base = bases[e.target.value].addTo(map); };
 
 const geomLayer = L.layerGroup().addTo(map);
@@ -598,22 +640,72 @@ function stationPopup(g) {
   return `<div class="st-pop"><h4>${esc(g.gname)}（${esc(g.gid)}）</h4>${esc(g.agency)}${g.alt != null && g.alt !== '' ? `｜海拔 ${f1(+g.alt)} m` : ''}｜距「${esc(p.name)}」${f1(d)} km` +
     (sub ? '<div class="sub">代表站：下列 Horner 參數的站名與實際雨量站不同。</div>' : '') + `<ul>${rows}</ul></div>`;
 }
+// 每個實際雨量站取一列 Horner 參數 (優先取非代表站的站名)
+function gaugeList() {
+  const gs = new Map();
+  for (const s of data.idf) {
+    const loc = data.stloc[s.name]; if (!loc) continue;
+    const c = gs.get(loc.gid); if (!c || (c.loc.sub && !loc.sub)) gs.set(loc.gid, { st: s, loc });
+  }
+  return [...gs.values()];
+}
+const thCache = new Map();
+// 控制點的降雨來源：徐昇式時依集水區範圍求各站面積權重；沒有集水區範圍則退回單站
+function rainSource(p) {
+  const single = { mode: 'single', src: [{ st: data.idf.find(r => r.name === p.station) || data.idf[0], w: 1 }] };
+  if ((p.rainMode || 'thiessen') !== 'thiessen') return single;
+  if (!p.poly || p.poly.length < 3) return { ...single, fallback: true };
+  const key = [p.poly.length, p.poly[0], p.poly[p.poly.length >> 1], data.idf.length, Object.keys(data.stloc).length].join('|');
+  let th = thCache.get(p.id);
+  if (!th || th.key !== key) {
+    const G = gaugeList(), poly = p.poly.map(q => toTM(q[0], q[1]));
+    const cnt = thiessenCounts(poly, G.map(x => toTM(x.loc.lat, x.loc.lng))), tot = cnt.reduce((a, b) => a + b, 0);
+    let area = 0; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) area += (poly[j][0] + poly[i][0]) * (poly[j][1] - poly[i][1]);
+    area = Math.abs(area) / 2 / 1e4;
+    const src = G.map((x, i) => ({ st: x.st, loc: x.loc, w: tot ? cnt[i] / tot : 0 })).filter(x => x.w > 0).sort((a, b) => b.w - a.w);
+    th = { key, src, areaHa: area }; thCache.set(p.id, th);
+  }
+  return th.src.length ? { mode: 'thiessen', src: th.src, areaHa: th.areaHa } : { ...single, fallback: true };
+}
+// 徐昇多邊形 (Voronoi) 邊界，取集水區周圍 25 km 內
+function thiessenCells(p) {
+  if (!window.d3 || !p.poly) return [];
+  const G = gaugeList(), xy = G.map(x => toTM(x.loc.lat, x.loc.lng)), pts = p.poly.map(q => toTM(q[0], q[1]));
+  const x0 = Math.min(...pts.map(q => q[0])) - 25000, x1 = Math.max(...pts.map(q => q[0])) + 25000;
+  const y0 = Math.min(...pts.map(q => q[1])) - 25000, y1 = Math.max(...pts.map(q => q[1])) + 25000;
+  const vor = d3.Delaunay.from(xy).voronoi([x0, y0, x1, y1]), cells = [];
+  for (let i = 0; i < xy.length; i++) {
+    const [x, y] = xy[i]; if (x < x0 - 30000 || x > x1 + 30000 || y < y0 - 30000 || y > y1 + 30000) continue;
+    const poly = vor.cellPolygon(i); if (poly) cells.push(poly.map(q => fromTM(q[0], q[1])));
+  }
+  return cells;
+}
 function drawStations() {
   stLayer.clearLayers();
-  const p = cur(), loc = data.stloc[p.station], show = $('showSt').checked;
-  if (loc) L.polyline([[p.lat, p.lng], [loc.lat, loc.lng]], { color: css('--rational'), weight: 1.5, dashArray: '5 5', interactive: false }).addTo(stLayer);
+  const p = cur(), r = lastResults[p.id], rs = r && r.rain, show = $('showSt').checked;
+  const thiessen = rs && rs.mode === 'thiessen';
+  const used = new Map(); // gid -> 權重
+  if (thiessen) {
+    for (const c of thiessenCells(p)) L.polyline(c, { color: css('--rational'), weight: 1.3, dashArray: '6 4', opacity: 0.85, interactive: false }).addTo(stLayer);
+    for (const s of rs.src) used.set(s.loc.gid, s.w);
+  } else {
+    const loc = data.stloc[p.station];
+    if (loc) { used.set(loc.gid, 1); L.polyline([[p.lat, p.lng], [loc.lat, loc.lng]], { color: css('--rational'), weight: 1.5, dashArray: '5 5', interactive: false }).addTo(stLayer); }
+  }
   for (const g of stationGroups()) {
-    const used = loc && g.gid === loc.gid;
-    if (!show && !used) continue;
-    const m = L.circleMarker([g.lat, g.lng], { radius: used ? 8 : 5, color: css('--rational'), weight: used ? 3 : 1.5, fillColor: used ? css('--rational') : css('--surface'), fillOpacity: 1 }).addTo(stLayer);
-    if (used) m.bindTooltip(`<div class="st-label">${esc(p.station)}${loc.sub ? `（${esc(loc.gname)}代）` : ''}　${f1(distKm([p.lat, p.lng], [g.lat, g.lng]))} km</div>`,
-      { permanent: true, direction: 'top', offset: [0, -8], className: 'leaflet-tooltip-plain', opacity: 1 });
-    else m.bindTooltip(esc(g.rows.map(r => r.name).join('、')), { direction: 'top' });
+    const w = used.get(g.gid);
+    if (!show && w == null) continue;
+    const m = L.circleMarker([g.lat, g.lng], { radius: w != null ? 8 : 5, color: css('--rational'), weight: w != null ? 3 : 1.5, fillColor: w != null ? css('--rational') : css('--surface'), fillOpacity: 1 }).addTo(stLayer);
+    if (w != null) {
+      const label = thiessen ? `${esc(g.gname.replace(/\(\d\)$/, ''))}　權重 ${(w * 100).toFixed(1)}%`
+        : `${esc(p.station)}${data.stloc[p.station].sub ? `（${esc(g.gname)}代）` : ''}　${f1(distKm([p.lat, p.lng], [g.lat, g.lng]))} km`;
+      m.bindTooltip(`<div class="st-label">${label}</div>`, { permanent: true, direction: 'top', offset: [0, -8], className: 'leaflet-tooltip-plain', opacity: 1 });
+    } else m.bindTooltip(esc(g.rows.map(r => r.name).join('、')), { direction: 'top' });
     m.bindPopup(() => stationPopup(g), { maxWidth: 300 });
   }
 }
 map.on('popupopen', e => {
-  e.popup.getElement().querySelectorAll('button[data-st]').forEach(b => b.onclick = () => { cur().station = b.dataset.st; map.closePopup(); save(); renderAll(); });
+  e.popup.getElement().querySelectorAll('button[data-st]').forEach(b => b.onclick = () => { cur().station = b.dataset.st; cur().rainMode = 'single'; map.closePopup(); save(); renderAll(); });
 });
 $('showSt').onchange = () => { drawStations(); render3d(); };
 
@@ -624,6 +716,7 @@ function t3dParams() {
   return {
     lat: p.lat, lng: p.lng, poly: p.poly, line: p.line, streams: streamsById.get(p.id) || [],
     stations: $('showSt').checked ? stationGroups().map(g => ({ lat: g.lat, lng: g.lng, name: g.rows.map(r => r.name.replace(/站$/, '')).join('/') })) : [],
+    cells: (lastResults[p.id] && lastResults[p.id].rain.mode === 'thiessen') ? thiessenCells(p) : [],
     layer: $('t3dLayer').value, hiRes: $('t3dHi').checked, exag: +$('t3dExag').value,
   };
 }
@@ -632,7 +725,7 @@ async function render3d(force) {
   const box = $('t3dStatus');
   if (!demReady) { box.textContent = '地形資料載入中…'; return; }
   const P = t3dParams();
-  const sig = JSON.stringify([selId, P.lat, P.lng, P.poly && P.poly.length, P.poly && P.poly[0], P.line && P.line.length, P.streams.length, P.stations.length, P.layer, P.hiRes]);
+  const sig = JSON.stringify([selId, P.lat, P.lng, P.poly && P.poly.length, P.poly && P.poly[0], P.line && P.line.length, P.streams.length, P.stations.length, P.cells.length, P.layer, P.hiRes]);
   if (!force && sig === t3dSig) return;
   t3dSig = sig;
   try {
@@ -654,13 +747,20 @@ $('t3dHi').onchange = () => render3d();
 $('t3dReset').onclick = () => Terrain3D.resetView();
 Terrain3D.onAzimuth(a => { $('nArrow').firstElementChild.style.transform = `rotate(${a}rad)`; });
 function renderStInfo() {
-  const p = cur(), loc = data.stloc[p.station];
+  const p = cur(), r = lastResults[p.id], rs = r && r.rain, loc = data.stloc[p.station];
   const near = stationGroups().map(g => ({ g, d: distKm([p.lat, p.lng], [g.lat, g.lng]) })).sort((a, b) => a.d - b.d).slice(0, 3);
-  $('stInfo').innerHTML = (loc
-    ? `實際雨量站：<b>${esc(loc.gname)}</b>（${esc(loc.gid)}，${esc(loc.agency)}${loc.sub ? '，代表站' : ''}），距控制點 ${f1(distKm([p.lat, p.lng], [loc.lat, loc.lng]))} km`
-    : '此雨量站沒有座標資料') +
-    '<br>最近的雨量站：' + near.map(({ g, d }) => `<button class="near" data-st="${esc(g.rows[0].name)}">${esc(g.rows.map(r => r.name).join('／'))}</button> ${f1(d)} km`).join('、');
-  $('stInfo').querySelectorAll('button.near').forEach(b => b.onclick = () => { p.station = b.dataset.st; save(); renderAll(); });
+  let h;
+  if (rs && rs.mode === 'thiessen') {
+    h = `<b>徐昇式權重</b>（集水區 ${f1(rs.areaHa)} ha）：` + rs.src.map(s =>
+      `${esc(s.st.name)}【${esc(s.loc.gname)} ${esc(s.loc.gid)}】<b>${(s.w * 100).toFixed(1)}%</b>（${f1(s.w * rs.areaHa)} ha）`).join('、');
+  } else {
+    h = (rs && rs.fallback ? '<span style="color:var(--warn)">徐昇式需要集水區範圍，請先自動圈繪；目前暫以單站計算。</span><br>' : '') + (loc
+      ? `實際雨量站：<b>${esc(loc.gname)}</b>（${esc(loc.gid)}，${esc(loc.agency)}${loc.sub ? '，代表站' : ''}），距控制點 ${f1(distKm([p.lat, p.lng], [loc.lat, loc.lng]))} km`
+      : '此雨量站沒有座標資料');
+  }
+  h += '<br>最近的雨量站：' + near.map(({ g, d }) => `<button class="near" data-st="${esc(g.rows[0].name)}">${esc(g.rows.map(r => r.name).join('／'))}</button> ${f1(d)} km`).join('、');
+  $('stInfo').innerHTML = h;
+  $('stInfo').querySelectorAll('button.near').forEach(b => b.onclick = () => { p.station = b.dataset.st; p.rainMode = 'single'; save(); renderAll(); });
 }
 
 // 讓 tooltip 不帶 Leaflet 預設白框（內容自帶樣式）
@@ -740,11 +840,13 @@ function fillStations() {
   }
 }
 fillStations();
-const F = { name: 'f_name', A: 'f_A', L: 'f_L', H: 'f_H', C: 'f_C', station: 'f_station', method: 'f_method' };
+const F = { name: 'f_name', A: 'f_A', L: 'f_L', H: 'f_H', C: 'f_C', station: 'f_station', rainMode: 'f_rain', method: 'f_method' };
 function fillForm() {
   const p = cur();
   for (const [k, id] of Object.entries(F)) $(id).value = p[k];
   $('f_debris').value = p.debris ? '1' : '0';
+  if (!p.rainMode) p.rainMode = 'thiessen';
+  $('g_pat').value = g.patMode || 'horner';
   $('g_k').value = g.k; $('g_tc1').value = g.tc1; $('g_alpha').value = g.alpha; $('g_cd').value = g.cd;
   const manual = !p.dem; // DTM 圈繪結果改在地圖下方的量測表顯示
   const a = manual && p.poly && p.poly.length > 2 ? geoArea(p.poly) / 1e4 : null, l = manual && p.line && p.line.length > 1 ? geoLen(p.line) / 1000 : null;
@@ -757,6 +859,7 @@ for (const [k, id] of Object.entries(F)) $(id).addEventListener('change', e => {
   const p = cur(); p[k] = e.target.type === 'number' ? +e.target.value : e.target.value; save(); renderAll();
 });
 $('f_debris').onchange = e => { cur().debris = e.target.value === '1'; save(); renderAll(); };
+$('g_pat').onchange = e => { g.patMode = e.target.value; save(); renderAll(); };
 for (const [k, id] of [['k', 'g_k'], ['tc1', 'g_tc1'], ['alpha', 'g_alpha'], ['cd', 'g_cd']])
   $(id).addEventListener('change', e => { g[k] = +e.target.value; save(); renderAll(); });
 
@@ -821,7 +924,7 @@ function renderHydro(r) {
   chH = new Chart($('chHydro'), cfg); themeChart(chH); chH.update();
   const tp = (h.tuh.indexOf(Math.max(...h.tuh)) + 1) * DT, sp = (h.scs.indexOf(Math.max(...h.scs)) + 1) * DT;
   $('hydroHint').textContent = `${selT} 年一遇｜R24 = ${f1(r.R24[i])} mm`;
-  $('hydroNote').innerHTML = `SCS 洪峰 <b class="num">${f1(r.Qs[i])}</b> cms（t = ${sp.toFixed(2)} hr）；TUH 洪峰 <b class="num">${f1(r.Qt[i])}</b> cms（t = ${tp.toFixed(2)} hr）；合理化公式 <b class="num">${f1(r.Qr[i])}</b> cms。有效雨量 Pe = C × 時段雨量。`;
+  $('hydroNote').innerHTML = `雨型：${g.patMode === 'fixed' ? '固定雨型 (203144 案)' : `Horner 交替區塊法（${r.rain.mode === 'thiessen' ? '徐昇加權' : r.st.name}）`}，最大 9 分鐘雨量 ${f1(Math.max(...h.P))} mm。SCS 洪峰 <b class="num">${f1(r.Qs[i])}</b> cms（t = ${sp.toFixed(2)} hr）；TUH 洪峰 <b class="num">${f1(r.Qt[i])}</b> cms（t = ${tp.toFixed(2)} hr）；合理化公式 <b class="num">${f1(r.Qr[i])}</b> cms。有效雨量 Pe = C × 時段雨量。`;
 }
 function renderFreq(r) {
   const fr = r.fr, best = fr.best;
@@ -873,7 +976,10 @@ function renderTable(r) {
 
   const fl = [];
   const loc = data.stloc[r.st.name];
-  if (loc) {
+  if (r.rain.mode === 'thiessen') {
+    fl.push(['ok', `降雨強度與雨型採徐昇式加權：${r.rain.src.map(s => `${s.st.name} ${(s.w * 100).toFixed(1)}%`).join('、')}。`]);
+    const subs = r.rain.src.filter(s => s.loc.sub); if (subs.length) fl.push(['warn', `${subs.map(s => s.st.name).join('、')} 的 Horner 參數取自代表站，請確認代表性。`]);
+  } else if (loc) {
     const dk = distKm([cur().lat, cur().lng], [loc.lat, loc.lng]);
     if (loc.sub || dk > 10) fl.push(['warn', `Horner 參數實際取自 ${loc.gname} 雨量站（${loc.gid}${loc.sub ? '，代表站' : ''}），距控制點 ${f1(dk)} km，請確認代表性。`]);
   }
@@ -921,7 +1027,7 @@ $('segWin').onclick = e => { const b = e.target.closest('button'); if (!b) retur
 let lastResults = {};
 function renderAll() {
   const results = {};
-  for (const p of points) if (!validate(p).length) results[p.id] = compute(p, g, data);
+  for (const p of points) if (!validate(p).length) { const rs = rainSource(p); results[p.id] = compute(p, g, data, rs.src); results[p.id].rain = rs; }
   lastResults = results;
   const p = cur(), r = results[p.id];
   renderChips(); fillForm(); drawGeoms(); drawStations(); drawMarkers(results); renderAllTable(results); renderDemInfo(); renderStInfo(); render3d();
