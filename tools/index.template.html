@@ -68,6 +68,19 @@ header.top .spacer { flex: 1; }
 .dem-info .v { font-family: var(--font-data); font-weight: 600; }
 .dem-info .act { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
 .btn:disabled { opacity: .55; cursor: progress; }
+.head-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.head-tools .chk { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; font-size: 12.5px; }
+.st-label { background: var(--surface); color: var(--rational); border: 1px solid var(--rational); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+.st-pop { font-size: 12.5px; line-height: 1.5; min-width: 210px; }
+.st-pop h4 { margin: 0 0 2px; font-size: 13.5px; }
+.st-pop .sub { color: var(--warn); }
+.st-pop ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 4px; }
+.st-pop li { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.st-pop .num { font-size: 11.5px; color: var(--muted); }
+.st-info { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.st-info b { color: var(--rational); }
+.st-info .near { border: 0; background: none; padding: 0; color: var(--river); text-decoration: underline; cursor: pointer; font-size: 12px; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--ink); }
 .leaflet-container { font-family: var(--font-body); background: var(--surface-2); }
 .pt-label { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; font-size: 12px; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
 .pt-label b { font-family: var(--font-data); color: var(--river); }
@@ -152,12 +165,15 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
     <section class="card">
       <div class="card-head">
         <h2>控制點地圖 <span class="hint">拖曳標記可移動控制點</span></h2>
+        <div class="head-tools">
+        <label class="chk" for="showSt"><input type="checkbox" id="showSt" checked> Horner 雨量站</label>
         <select id="basemap" class="btn small" aria-label="底圖">
           <option value="emap">通用版電子地圖</option>
           <option value="photo">正射影像</option>
           <option value="topo">地形等高線 (OpenTopoMap)</option>
           <option value="osm">OpenStreetMap</option>
         </select>
+        </div>
       </div>
       <div id="map" role="region" aria-label="控制點地圖"></div>
       <div class="dem-bar">
@@ -195,7 +211,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
         <div class="field"><label for="f_L">主流長度 L (km)</label><input id="f_L" type="number" step="any" min="0"><span class="from-map" id="mapL"></span></div>
         <div class="field"><label for="f_H">最高最低點落差 H (m)</label><input id="f_H" type="number" step="any" min="0"></div>
         <div class="field"><label for="f_C">逕流係數 C</label><input id="f_C" type="number" step="0.01" min="0" max="1"></div>
-        <div class="field wide"><label for="f_station">Horner 雨量站</label><select id="f_station"></select></div>
+        <div class="field wide"><label for="f_station">Horner 雨量站</label><select id="f_station"></select><div class="st-info" id="stInfo"></div></div>
         <div class="field"><label for="f_method">採用方法</label>
           <select id="f_method">
             <option value="auto">依面積自動判定 (≤1000 ha 合理化)</option>
@@ -396,6 +412,7 @@ const data = {
   rain: DEFAULTS.rain.map(r => [r[0], r[1]]),
   pattern: DEFAULTS.pattern.slice(),
   idf: DEFAULTS.idf.map(r => ({ region: r[0], name: r[1], a25: r[2], b25: r[3], c25: r[4], a50: r[5], b50: r[6], c50: r[7], a100: r[8], b100: r[9], c100: r[10], note: r[11] || '' })),
+  stloc: DEFAULTS.stloc || {}, // IDF 站名 → 實際雨量站座標 (tools/build_station_locations.py)
 };
 const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3 };
 let firstVisit = true;
@@ -532,6 +549,54 @@ function drawMarkers(results) {
     });
   }
 }
+// ===== Horner 雨量站 =====
+const stLayer = L.layerGroup().addTo(map);
+const distKm = (a, b) => geoLen([a, b]) / 1000;
+function stationGroups() { // 多個 IDF 站名共用同一實際雨量站時合併為一個標記
+  const gs = new Map();
+  for (const s of data.idf) {
+    const loc = data.stloc[s.name]; if (!loc) continue;
+    if (!gs.has(loc.gid)) gs.set(loc.gid, { ...loc, rows: [] });
+    gs.get(loc.gid).rows.push(s);
+  }
+  return [...gs.values()];
+}
+function stationPopup(g) {
+  const p = cur(), d = distKm([p.lat, p.lng], [g.lat, g.lng]);
+  const sub = g.rows.some(r => data.stloc[r.name].sub);
+  const rows = g.rows.map(r => `<li><span>${esc(r.name)}<br><span class="num">25 年 a=${r.a25}　b=${r.b25}　c=${r.c25}</span></span>` +
+    (r.name === p.station ? '<b>使用中</b>' : `<button class="btn small" data-st="${esc(r.name)}">採用</button>`) + '</li>').join('');
+  return `<div class="st-pop"><h4>${esc(g.gname)}（${esc(g.gid)}）</h4>${esc(g.agency)}${g.alt != null && g.alt !== '' ? `｜海拔 ${f1(+g.alt)} m` : ''}｜距「${esc(p.name)}」${f1(d)} km` +
+    (sub ? '<div class="sub">代表站：下列 Horner 參數的站名與實際雨量站不同。</div>' : '') + `<ul>${rows}</ul></div>`;
+}
+function drawStations() {
+  stLayer.clearLayers();
+  const p = cur(), loc = data.stloc[p.station], show = $('showSt').checked;
+  if (loc) L.polyline([[p.lat, p.lng], [loc.lat, loc.lng]], { color: css('--rational'), weight: 1.5, dashArray: '5 5', interactive: false }).addTo(stLayer);
+  for (const g of stationGroups()) {
+    const used = loc && g.gid === loc.gid;
+    if (!show && !used) continue;
+    const m = L.circleMarker([g.lat, g.lng], { radius: used ? 8 : 5, color: css('--rational'), weight: used ? 3 : 1.5, fillColor: used ? css('--rational') : css('--surface'), fillOpacity: 1 }).addTo(stLayer);
+    if (used) m.bindTooltip(`<div class="st-label">${esc(p.station)}${loc.sub ? `（${esc(loc.gname)}代）` : ''}　${f1(distKm([p.lat, p.lng], [g.lat, g.lng]))} km</div>`,
+      { permanent: true, direction: 'top', offset: [0, -8], className: 'leaflet-tooltip-plain', opacity: 1 });
+    else m.bindTooltip(esc(g.rows.map(r => r.name).join('、')), { direction: 'top' });
+    m.bindPopup(() => stationPopup(g), { maxWidth: 300 });
+  }
+}
+map.on('popupopen', e => {
+  e.popup.getElement().querySelectorAll('button[data-st]').forEach(b => b.onclick = () => { cur().station = b.dataset.st; map.closePopup(); save(); renderAll(); });
+});
+$('showSt').onchange = drawStations;
+function renderStInfo() {
+  const p = cur(), loc = data.stloc[p.station];
+  const near = stationGroups().map(g => ({ g, d: distKm([p.lat, p.lng], [g.lat, g.lng]) })).sort((a, b) => a.d - b.d).slice(0, 3);
+  $('stInfo').innerHTML = (loc
+    ? `實際雨量站：<b>${esc(loc.gname)}</b>（${esc(loc.gid)}，${esc(loc.agency)}${loc.sub ? '，代表站' : ''}），距控制點 ${f1(distKm([p.lat, p.lng], [loc.lat, loc.lng]))} km`
+    : '此雨量站沒有座標資料') +
+    '<br>最近的雨量站：' + near.map(({ g, d }) => `<button class="near" data-st="${esc(g.rows[0].name)}">${esc(g.rows.map(r => r.name).join('／'))}</button> ${f1(d)} km`).join('、');
+  $('stInfo').querySelectorAll('button.near').forEach(b => b.onclick = () => { p.station = b.dataset.st; save(); renderAll(); });
+}
+
 // 讓 tooltip 不帶 Leaflet 預設白框（內容自帶樣式）
 const st = document.createElement('style');
 st.textContent = '.leaflet-tooltip-plain{background:none;border:0;box-shadow:none;padding:0}.leaflet-tooltip-plain:before{display:none}';
@@ -741,6 +806,11 @@ function renderTable(r) {
   $('tblRes').innerHTML = h + '</tbody>';
 
   const fl = [];
+  const loc = data.stloc[r.st.name];
+  if (loc) {
+    const dk = distKm([cur().lat, cur().lng], [loc.lat, loc.lng]);
+    if (loc.sub || dk > 10) fl.push(['warn', `Horner 參數實際取自 ${loc.gname} 雨量站（${loc.gid}${loc.sub ? '，代表站' : ''}），距控制點 ${f1(dk)} km，請確認代表性。`]);
+  }
   if (r.st.b25 === 0) fl.push(['warn', `${r.st.name} 的 Horner 參數 b = 0，短延時強度偏高（I25 = ${f1(r.I[4])} mm/hr），建議對照水利署 107 年原始報告確認。`]);
   if (r.tcMin < 10) fl.push(['warn', `集流時間僅 ${f1(r.tcMin)} 分鐘（只計河道流時間），合理化公式未加坡面流時間。`]);
   const hack = 1.4 * Math.pow(r.Akm / 2.59, 0.6) * 1.609;
@@ -788,7 +858,7 @@ function renderAll() {
   for (const p of points) if (!validate(p).length) results[p.id] = compute(p, g, data);
   lastResults = results;
   const p = cur(), r = results[p.id];
-  renderChips(); fillForm(); drawGeoms(); drawMarkers(results); renderAllTable(results); renderDemInfo();
+  renderChips(); fillForm(); drawGeoms(); drawStations(); drawMarkers(results); renderAllTable(results); renderDemInfo(); renderStInfo();
   $('segT').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.t === selT));
   $('segWin').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.w === win));
   if (!r) {
