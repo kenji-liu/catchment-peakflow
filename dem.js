@@ -54,6 +54,22 @@ const DEM = (() => {
       for (let tx = Math.floor(c0 / T); tx <= Math.floor(c1 / T); tx++) jobs.push(tile(tx, ty));
     await Promise.all(jobs);
   }
+  // 依 TM2 範圍取樣高程網格 (由北往南逐列)，step 為取樣間隔 (格)；無資料為 NaN
+  async function grid(E0, N0, E1, N1, step = 1) {
+    const cell = meta.cell;
+    const c0 = Math.floor((E0 - meta.E0) / cell), c1 = Math.ceil((E1 - meta.E0) / cell);
+    const r0 = Math.floor((meta.N0 - N1) / cell), r1 = Math.ceil((meta.N0 - N0) / cell);
+    await ensure(c0, r0, c1, r1);
+    const nx = Math.floor((c1 - c0) / step) + 1, ny = Math.floor((r1 - r0) / step) + 1;
+    const z = new Float32Array(nx * ny);
+    let zmin = Infinity, zmax = -Infinity;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const v = at(c0 + i * step, r0 + j * step), h = v ? v[0] : NaN;
+      z[j * nx + i] = h;
+      if (v) { if (h < zmin) zmin = h; if (h > zmax) zmax = h; }
+    }
+    return { nx, ny, z, E0: meta.E0 + c0 * cell, N0: meta.N0 - r0 * cell, d: cell * step, zmin, zmax };
+  }
   async function elevation(lat, lng) {
     const [E, N] = toTM(lat, lng), [c, r] = cellOf(E, N);
     await ensure(c, r, c, r); const v = at(c, r); return v ? v[0] : null;
@@ -213,5 +229,5 @@ const DEM = (() => {
       tiles: loaded.size,
     };
   }
-  return { init, delineate, elevation, toTM, toLL, get meta() { return meta; } };
+  return { init, delineate, elevation, grid, toTM, toLL, get meta() { return meta; } };
 })();

@@ -68,6 +68,16 @@ header.top .spacer { flex: 1; }
 .dem-info .v { font-family: var(--font-data); font-weight: 600; }
 .dem-info .act { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
 .btn:disabled { opacity: .55; cursor: progress; }
+#map3d { height: 460px; border-radius: var(--r); border: 1px solid var(--line); position: relative; overflow: hidden; background: linear-gradient(#b9cdd6, #e8eeea); }
+#map3d canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.n-arrow { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; font: 700 12px var(--font-data); color: var(--bad); box-shadow: 0 1px 4px rgba(0,0,0,.2); z-index: 2; pointer-events: none; }
+.n-arrow span { display: block; transform-origin: 50% 50%; }
+.n-arrow span::before { content: ""; display: block; width: 0; height: 0; margin: 0 auto 1px; border: 5px solid transparent; border-bottom: 8px solid var(--bad); border-top: 0; }
+.t3d-status { position: absolute; left: 10px; bottom: 10px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 4px 9px; font-size: 12px; z-index: 2; max-width: calc(100% - 20px); }
+.t3d-status:empty { display: none; }
+.t3d-bar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 10px; }
+.t3d-bar input[type=range] { width: 110px; accent-color: var(--river); }
+.t3d-bar .chk { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
 .head-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .head-tools .chk { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; font-size: 12.5px; }
 .st-label { background: var(--surface); color: var(--rational); border: 1px solid var(--rational); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
@@ -166,6 +176,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
       <div class="card-head">
         <h2>控制點地圖 <span class="hint">拖曳標記可移動控制點</span></h2>
         <div class="head-tools">
+        <div class="seg" id="segView" role="group" aria-label="地圖模式"><button data-v="2d" class="on">2D 地圖</button><button data-v="3d">3D 地形</button></div>
         <label class="chk" for="showSt"><input type="checkbox" id="showSt" checked> Horner 雨量站</label>
         <select id="basemap" class="btn small" aria-label="底圖">
           <option value="emap">通用版電子地圖</option>
@@ -176,6 +187,21 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
         </div>
       </div>
       <div id="map" role="region" aria-label="控制點地圖"></div>
+      <div id="map3d" role="region" aria-label="3D 地形" hidden>
+        <div class="n-arrow" id="nArrow" title="北方"><span>N</span></div>
+        <div class="t3d-status" id="t3dStatus"></div>
+      </div>
+      <div class="t3d-bar" id="t3dBar" hidden>
+        <select id="t3dLayer" class="btn small" aria-label="3D 貼圖">
+          <option value="PHOTO2">正射影像</option><option value="EMAP">通用版電子地圖</option>
+        </select>
+        <label class="small" for="t3dExag">垂直誇張</label>
+        <input type="range" id="t3dExag" min="1" max="3" step="0.1" value="1.5">
+        <span class="num small" id="t3dExagV">1.5×</span>
+        <label class="small chk"><input type="checkbox" id="t3dHi"> 高解析影像</label>
+        <button class="btn small" id="t3dReset">重設視角</button>
+        <span class="small muted">左鍵拖曳旋轉・右鍵平移・滾輪縮放</span>
+      </div>
       <div class="dem-bar">
         <button class="btn primary small" id="btnAuto">依控制點自動圈繪集水區</button>
         <label class="small" for="snapR">河道吸附半徑</label>
@@ -299,7 +325,10 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
 <script src="dem.js"></script>
+<script src="terrain3d.js"></script>
 <script>
 // ===== DEFAULT DATA (取自 Excel v17) =====
 const DEFAULTS = /*__DATA__*/null;
@@ -586,7 +615,44 @@ function drawStations() {
 map.on('popupopen', e => {
   e.popup.getElement().querySelectorAll('button[data-st]').forEach(b => b.onclick = () => { cur().station = b.dataset.st; map.closePopup(); save(); renderAll(); });
 });
-$('showSt').onchange = drawStations;
+$('showSt').onchange = () => { drawStations(); render3d(); };
+
+// ===== 3D 地形 =====
+let view = '2d', t3dSig = '';
+function t3dParams() {
+  const p = cur();
+  return {
+    lat: p.lat, lng: p.lng, poly: p.poly, line: p.line, streams: streamsById.get(p.id) || [],
+    stations: $('showSt').checked ? stationGroups().map(g => ({ lat: g.lat, lng: g.lng, name: g.rows.map(r => r.name.replace(/站$/, '')).join('/') })) : [],
+    layer: $('t3dLayer').value, hiRes: $('t3dHi').checked, exag: +$('t3dExag').value,
+  };
+}
+async function render3d(force) {
+  if (view !== '3d') return;
+  const box = $('t3dStatus');
+  if (!demReady) { box.textContent = '地形資料載入中…'; return; }
+  const P = t3dParams();
+  const sig = JSON.stringify([selId, P.lat, P.lng, P.poly && P.poly.length, P.poly && P.poly[0], P.line && P.line.length, P.streams.length, P.stations.length, P.layer, P.hiRes]);
+  if (!force && sig === t3dSig) return;
+  t3dSig = sig;
+  try {
+    const info = await Terrain3D.open($('map3d'), P, m => { box.textContent = m; });
+    if (info) box.textContent = `網格 ${info.nx}×${info.ny}（間距 ${info.step} m）・高程 ${f1(info.zmin)}～${f1(info.zmax)} m`;
+  } catch (err) { box.textContent = err.message; t3dSig = ''; }
+}
+$('segView').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  view = b.dataset.v;
+  $('segView').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  const is3d = view === '3d';
+  $('map').hidden = is3d; $('map3d').hidden = !is3d; $('t3dBar').hidden = !is3d; $('basemap').hidden = is3d;
+  if (is3d) { render3d(); Terrain3D.resize(); } else map.invalidateSize();
+};
+$('t3dExag').oninput = e => { $('t3dExagV').textContent = (+e.target.value).toFixed(1) + '×'; Terrain3D.setExag(+e.target.value); };
+$('t3dLayer').onchange = () => render3d();
+$('t3dHi').onchange = () => render3d();
+$('t3dReset').onclick = () => Terrain3D.resetView();
+Terrain3D.onAzimuth(a => { $('nArrow').firstElementChild.style.transform = `rotate(${a}rad)`; });
 function renderStInfo() {
   const p = cur(), loc = data.stloc[p.station];
   const near = stationGroups().map(g => ({ g, d: distKm([p.lat, p.lng], [g.lat, g.lng]) })).sort((a, b) => a.d - b.d).slice(0, 3);
@@ -858,7 +924,7 @@ function renderAll() {
   for (const p of points) if (!validate(p).length) results[p.id] = compute(p, g, data);
   lastResults = results;
   const p = cur(), r = results[p.id];
-  renderChips(); fillForm(); drawGeoms(); drawStations(); drawMarkers(results); renderAllTable(results); renderDemInfo(); renderStInfo();
+  renderChips(); fillForm(); drawGeoms(); drawStations(); drawMarkers(results); renderAllTable(results); renderDemInfo(); renderStInfo(); render3d();
   $('segT').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.t === selT));
   $('segWin').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.w === win));
   if (!r) {
