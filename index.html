@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>集水區洪峰流量圖台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: 左欄＝地圖＋控制點參數，右欄＝關鍵數字、流量歷線、成果表與頻率分析；窄螢幕改單欄堆疊 */
+:root {
+  --bg: #eef2ef; --surface: #ffffff; --surface-2: #f6f8f6; --ink: #17262a; --muted: #5b6b6d; --line: #d3dcd7;
+  --river: #1d6a86; --tuh: #b8612a; --rational: #6b4fa0; --rain: #8aa7b4; --ok: #2f7d4f; --warn: #b07a12; --bad: #b3412e;
+  --river-soft: rgba(29,106,134,.12);
+  --font-body: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+  --r: 6px; --gap: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1719; --surface: #172225; --surface-2: #1c292c; --ink: #e2ebe9; --muted: #92a4a5; --line: #2a3a3d;
+  --river: #52b2d0; --tuh: #e3925a; --rational: #b39ddb; --rain: #5d7e8c; --ok: #5cbf86; --warn: #e0b04a; --bad: #e57a66;
+  --river-soft: rgba(82,178,208,.16); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1719; --surface: #172225; --surface-2: #1c292c; --ink: #e2ebe9; --muted: #92a4a5; --line: #2a3a3d;
+  --river: #52b2d0; --tuh: #e3925a; --rational: #b39ddb; --rain: #5d7e8c; --ok: #5cbf86; --warn: #e0b04a; --bad: #e57a66;
+  --river-soft: rgba(82,178,208,.16); color-scheme: dark }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.55 var(--font-body); padding: 0 16px 32px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+.num, td.n, input[type=number] { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--river); outline-offset: 2px; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding-block: 14px 12px; }
+header.top h1 { font-size: 20px; font-weight: 900; letter-spacing: .02em; }
+header.top .sub { color: var(--muted); font-size: 12.5px; }
+header.top .spacer { flex: 1; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--river); }
+.btn.primary { background: var(--river); border-color: var(--river); color: #fff; }
+.btn.on { background: var(--river-soft); border-color: var(--river); color: var(--river); font-weight: 700; }
+.btn.small { padding: 3px 9px; font-size: 12.5px; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--gap); align-items: start; }
+@media (max-width: 1020px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: var(--gap); min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; min-width: 0; }
+.card h2 { font-size: 14.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card h2 .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.eyebrow { font-size: 11px; letter-spacing: .08em; color: var(--muted); }
+
+#map { height: 460px; border-radius: var(--r); border: 1px solid var(--line); z-index: 0; }
+.map-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+.map-msg { font-size: 12.5px; color: var(--muted); margin-top: 6px; min-height: 1.4em; }
+.map-msg b { color: var(--river); }
+.map-msg.err { color: var(--bad); }
+.dem-bar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 10px; padding: 8px 10px; background: var(--river-soft); border-radius: var(--r); }
+.dem-bar .chk { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+.dem-info { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; margin-top: 10px; }
+@media (max-width: 520px) { .dem-info { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.dem-info > div { background: var(--surface); padding: 7px 10px; min-width: 0; }
+.dem-info .k { font-size: 11.5px; color: var(--muted); }
+.dem-info .v { font-family: var(--font-data); font-weight: 600; }
+.dem-info .act { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.btn:disabled { opacity: .55; cursor: progress; }
+.leaflet-container { font-family: var(--font-body); background: var(--surface-2); }
+.pt-label { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; font-size: 12px; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+.pt-label b { font-family: var(--font-data); color: var(--river); }
+.pt-label.sel { border-color: var(--river); outline: 1px solid var(--river); }
+
+.points { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 3px 11px; cursor: pointer; font-size: 13px; }
+.chip.sel { background: var(--river); border-color: var(--river); color: #fff; }
+
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+@media (max-width: 460px) { .form { grid-template-columns: minmax(0, 1fr); } }
+.field { display: grid; gap: 3px; min-width: 0; }
+.field label { font-size: 12px; color: var(--muted); }
+.field input, .field select { width: 100%; border: 1px solid var(--line); background: var(--surface-2); border-radius: 5px; padding: 6px 8px; }
+.field input:focus, .field select:focus { border-color: var(--river); outline: none; }
+.field.wide { grid-column: 1 / -1; }
+.field .from-map { font-size: 11.5px; color: var(--river); }
+details.more { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+details.more summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details.more .form { margin-top: 10px; }
+
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+@media (max-width: 700px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { background: var(--surface); padding: 10px 12px; min-width: 0; }
+.kpi .k { font-size: 11.5px; color: var(--muted); }
+.kpi .v { font-family: var(--font-data); font-size: 21px; font-weight: 600; line-height: 1.2; }
+.kpi .u { font-size: 11.5px; color: var(--muted); margin-left: 3px; }
+.kpi.hero .v { color: var(--river); }
+.method-pill { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--river-soft); color: var(--river); font-weight: 700; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 4px 10px; cursor: pointer; font-family: var(--font-data); font-size: 12.5px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--river); color: #fff; }
+.chart-box { position: relative; height: 340px; }
+.chart-box.short { height: 280px; }
+.legend-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
+.tabs button { border: 0; background: none; padding: 7px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--river); font-weight: 700; }
+.scroll-x { overflow-x: auto; }
+table.res { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.res th, table.res td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+table.res th:first-child, table.res td:first-child { text-align: left; white-space: normal; min-width: 150px; }
+table.res thead th { font-size: 12px; color: var(--muted); font-weight: 500; }
+table.res tr.adopt td { background: var(--river-soft); font-weight: 600; }
+table.res td.hl { outline: 2px solid var(--river); outline-offset: -2px; }
+table.res .tag { font-size: 11px; color: var(--muted); display: block; font-weight: 400; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+
+.flags { display: grid; gap: 6px; margin-top: 12px; }
+.flag { font-size: 12.5px; padding: 6px 10px; border-radius: 5px; border-left: 3px solid var(--warn); background: var(--surface-2); }
+.flag.bad { border-left-color: var(--bad); }
+.flag.ok { border-left-color: var(--ok); }
+textarea#rainText { width: 100%; min-height: 180px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 5px; padding: 8px; font-family: var(--font-data); font-size: 12.5px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>集水區洪峰流量圖台</h1>
+    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v17</div>
+  </div>
+  <div class="spacer"></div>
+  <label class="btn" for="xlsxFile" title="讀取 v17 活頁簿的雨量、雨型、IDF 與主控台參數">載入 Excel</label>
+  <input type="file" id="xlsxFile" accept=".xlsx,.xlsm" hidden>
+  <button class="btn" id="btnExportQ">匯出歷線 CSV</button>
+  <button class="btn" id="btnExportT">匯出成果表 CSV</button>
+  <button class="btn" id="btnTheme" title="切換深淺色">深淺色</button>
+</header>
+
+<div class="grid">
+  <!-- 左欄 -->
+  <div class="col">
+    <section class="card">
+      <div class="card-head">
+        <h2>控制點地圖 <span class="hint">拖曳標記可移動控制點</span></h2>
+        <select id="basemap" class="btn small" aria-label="底圖">
+          <option value="emap">通用版電子地圖</option>
+          <option value="photo">正射影像</option>
+          <option value="topo">地形等高線 (OpenTopoMap)</option>
+          <option value="osm">OpenStreetMap</option>
+        </select>
+      </div>
+      <div id="map" role="region" aria-label="控制點地圖"></div>
+      <div class="dem-bar">
+        <button class="btn primary small" id="btnAuto">依控制點自動圈繪集水區</button>
+        <label class="small" for="snapR">河道吸附半徑</label>
+        <select id="snapR" class="btn small">
+          <option value="40">40 m</option><option value="100" selected>100 m</option><option value="200">200 m</option><option value="400">400 m</option>
+        </select>
+        <label class="small chk"><input type="checkbox" id="autoApply" checked> 自動套用 A、L、H</label>
+        <label class="small chk"><input type="checkbox" id="autoOnDrag" checked> 拖曳後重新圈繪</label>
+      </div>
+      <div class="map-tools">
+        <button class="btn small" id="btnAddPt">＋ 新增控制點</button>
+        <button class="btn small" id="btnDrawPoly">手繪集水區範圍</button>
+        <button class="btn small" id="btnDrawLine">手繪主流線</button>
+        <button class="btn small" id="btnFinish" hidden>完成繪製</button>
+        <button class="btn small" id="btnCancel" hidden>取消</button>
+        <button class="btn small" id="btnClearGeom">清除圖形</button>
+      </div>
+      <div class="map-msg" id="mapMsg"></div>
+      <div class="dem-info" id="demInfo" hidden></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>控制點參數</h2>
+        <div class="row">
+          <button class="btn small" id="btnDelPt">刪除此控制點</button>
+        </div>
+      </div>
+      <div class="points" id="pointChips" style="margin-bottom:12px"></div>
+      <div class="form">
+        <div class="field wide"><label for="f_name">工程 / 控制點名稱</label><input id="f_name" type="text"></div>
+        <div class="field"><label for="f_A">集水區面積 A (ha)</label><input id="f_A" type="number" step="any" min="0"><span class="from-map" id="mapA"></span></div>
+        <div class="field"><label for="f_L">主流長度 L (km)</label><input id="f_L" type="number" step="any" min="0"><span class="from-map" id="mapL"></span></div>
+        <div class="field"><label for="f_H">最高最低點落差 H (m)</label><input id="f_H" type="number" step="any" min="0"></div>
+        <div class="field"><label for="f_C">逕流係數 C</label><input id="f_C" type="number" step="0.01" min="0" max="1"></div>
+        <div class="field wide"><label for="f_station">Horner 雨量站</label><select id="f_station"></select></div>
+        <div class="field"><label for="f_method">採用方法</label>
+          <select id="f_method">
+            <option value="auto">依面積自動判定 (≤1000 ha 合理化)</option>
+            <option value="rational">合理化公式法</option>
+            <option value="scs">SCS 單位歷線法</option>
+            <option value="tuh">三角形單位歷線法 (TUH)</option>
+          </select></div>
+        <div class="field"><label for="f_debris">土石流潛勢</label>
+          <select id="f_debris"><option value="1">是</option><option value="0">否</option></select></div>
+      </div>
+      <details class="more">
+        <summary>進階參數（全部控制點共用）</summary>
+        <div class="form">
+          <div class="field"><label for="g_k">一日暴雨 → 24 hr 轉換係數 k</label><input id="g_k" type="number" step="0.01" min="0.5"></div>
+          <div class="field"><label for="g_tc1">坡面集流時間 Tc1 (hr，TUH 用)</label><input id="g_tc1" type="number" step="0.01" min="0"></div>
+          <div class="field"><label for="g_alpha">高含砂增量比 α</label><input id="g_alpha" type="number" step="0.01" min="0"></div>
+          <div class="field"><label for="g_cd">土石流體積濃度 Cd</label><input id="g_cd" type="number" step="0.01" min="0" max="0.9"></div>
+        </div>
+        <p class="small muted" style="margin:10px 0 0">雨型採 D = 0.15 hr（9 分鐘）Horner 24 小時雨型，共 160 時階；一日暴雨序列在右側「雨量資料」分頁編修。</p>
+      </details>
+    </section>
+  </div>
+
+  <!-- 右欄 -->
+  <div class="col">
+    <section class="kpis" id="kpis" aria-live="polite"></section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>流量歷線 <span class="hint" id="hydroHint"></span></h2>
+        <div class="row">
+          <div class="seg" id="segT" role="group" aria-label="重現期距"></div>
+          <div class="seg" id="segWin" role="group" aria-label="時間範圍">
+            <button data-w="peak" class="on">尖峰段</button><button data-w="all">全程</button>
+          </div>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chHydro" aria-label="流量歷線圖"></canvas></div>
+      <div class="legend-note" id="hydroNote"></div>
+    </section>
+
+    <section class="card">
+      <div class="tabs" role="tablist">
+        <button class="on" data-tab="tabRes">成果表</button>
+        <button data-tab="tabFreq">頻率分析</button>
+        <button data-tab="tabRain">雨量資料</button>
+        <button data-tab="tabAll">全部控制點</button>
+      </div>
+
+      <div id="tabRes">
+        <div class="scroll-x"><table class="res" id="tblRes"></table></div>
+        <div class="flags" id="flags"></div>
+      </div>
+
+      <div id="tabFreq" hidden>
+        <div class="chart-box short"><canvas id="chFreq" aria-label="頻率分析圖"></canvas></div>
+        <div class="scroll-x" style="margin-top:12px"><table class="res" id="tblFreq"></table></div>
+      </div>
+
+      <div id="tabRain" hidden>
+        <p class="small muted" style="margin-top:0">每行一筆「年份 年最大一日雨量(mm)」，以空白、Tab 或逗號分隔；可直接從 Excel 貼上兩欄。</p>
+        <textarea id="rainText" spellcheck="false" aria-label="年最大一日雨量資料"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary small" id="btnRainApply">套用雨量資料</button>
+          <span class="small muted" id="rainMsg"></span>
+        </div>
+      </div>
+
+      <div id="tabAll" hidden>
+        <div class="scroll-x"><table class="res" id="tblAll"></table></div>
+        <p class="small muted">點選列可切換控制點；比流量 q = Q50 ÷ A。</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<footer>
+  公式：Rziha W = 72(H/L)<sup>0.6</sup>；合理化 Q = CIA/360；SCS Tp = D/2 + 0.6t<sub>c</sub>、Tb = 2.67Tp、qp = 0.208A/Tp；TUH Tp = D/2 + 0.6Tc、Tb = D/2 + 1.2Tc、qp = 2A/(3.6Tb)；R24 = k × 一日暴雨。各重現期合理化降雨強度沿用 Excel 換算倍數 (2/5/10/20 年 = 0.60/0.74/0.85/0.95 × I25，200 年 = 1.12 × I100)。<br>
+  自動圈繪：內政部 2025 年版全臺灣 20 公尺網格數值地形模型 DTM（政府資料開放授權條款－第 1 版），經 Priority-Flood+ε 填窪、D8 流向與流量累積前處理；主流線取最長流路，H 為源頭與出口高程差。20 m 網格無法反映人工渠道與小型構造物，重要案件請以實測地形或 LiDAR 複核。<br>
+  底圖：內政部國土測繪中心、OpenStreetMap、OpenTopoMap。你輸入的資料只存在自己的瀏覽器，不會上傳。
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="dem.js"></script>
+<script>
+// ===== DEFAULT DATA (取自 Excel v17) =====
+const DEFAULTS = {"rain": [[1996, 385], [1997, 240], [1998, 295], [1999, 210], [2000, 350], [2001, 460], [2002, 185], [2003, 195], [2004, 490], [2005, 360], [2006, 280], [2007, 340], [2008, 480], [2009, 520], [2010, 310], [2011, 230], [2012, 390], [2013, 420], [2014, 210], [2015, 410], [2016, 370], [2017, 330], [2018, 260], [2019, 290], [2020, 220], [2021, 350], [2022, 275], [2023, 380], [2024, 430], [2025, 315]], "pattern": [0.00279859363223511, 0.00280834413397316, 0.00282813472539052, 0.00284832204007901, 0.00286891932275304, 0.00288994044166464, 0.00291139992672817, 0.0029333130105213, 0.00295569567243352, 0.00297856468624187, 0.00300193767143545, 0.00302583314864415, 0.00305027059956167, 0.0030752705318016, 0.00310085454917036, 0.00312704542790207, 0.00315386719945953, 0.003181345240579, 0.00320950637132056, 0.00323837896197643, 0.00326799304979526, 0.00329838046660836, 0.00332957497857595, 0.00336161243943779, 0.00339453095883363, 0.00342837108747617, 0.00346317602120087, 0.0034989918262101, 0.00353586768815527, 0.00357385618809524, 0.00361301360881914, 0.00365340027555428, 0.00369508093571401, 0.00373812518307054, 0.00378260793261882, 0.00382860995343966, 0.00387621846810738, 0.00392552782867849, 0.00397664028107361, 0.00402966683182859, 0.00408472823378973, 0.00414195611050392, 0.00420149424293553, 0.0042635000469047, 0.00432814627551762, 0.00439562298817529, 0.00446613983683812, 0.00453992873168955, 0.00461724696277986, 0.00469838087262996, 0.00478365019832366, 0.00487341323200744, 0.00496807298824058, 0.00506808461847716, 0.00517396438155057, 0.00528630057069012, 0.00540576692127709, 0.0055331391923759, 0.00566931584817343, 0.00581534409152784, 0.00597245296424492, 0.0061420958944751, 0.0063260060460477, 0.00652626927666702, 0.0067454217191627, 0.0069865824296029, 0.00725363700661498, 0.00755149702140523, 0.0078864751766008, 0.00826684246674939, 0.00870368157023952, 0.00921224214875399, 0.00981418797882584, 0.0105415223632153, 0.0114439031788794, 0.0126034455416387, 0.0141681323642661, 0.0164396839950171, 0.0201655678274159, 0.0280240205248779, 0.103456639570031, 0.0375757212325217, 0.0231993006298164, 0.0180368500186362, 0.0151856631106793, 0.0133216222753995, 0.0119844354309297, 0.0109667169060285, 0.0101596131825765, 0.00949984700046531, 0.00894782807030348, 0.00847736825286539, 0.00807037115950294, 0.00771388347433608, 0.00739836005822194, 0.00711659376364708, 0.00686302874986712, 0.00663330492193334, 0.00642394692315209, 0.00623214647005157, 0.00605560666047822, 0.00589242844526229, 0.00574102641367233, 0.00560006535649291, 0.00546841181399616, 0.00534509660173388, 0.0052292854937984, 0.0051202560469149, 0.00501737910250595, 0.00492010389145756, 0.00482794594156684, 0.00474047718570509, 0.00465731781304384, 0.00457812951200282, 0.00450260983278983, 0.00443048745694216, 0.00436151820651008, 0.00429548166013944, 0.00423217827003606, 0.00417142689459181, 0.00411306267773765, 0.00405693521894111, 0.00400290698797839, 0.00395085194674215, 0.00390065434691731, 0.00385220767763072, 0.00380541374148398, 0.00376018184088489, 0.0037164280594636, 0.00367407462573228, 0.00363304934810651, 0.00359328511202453, 0.00355471943127525, 0.0035172940467614, 0.00348095456689833, 0.00344565014463561, 0.00341133318678456, 0.00337795909190576, 0.00334548601349818, 0.00331387464566144, 0.00328308802875466, 0.00325309137288691, 0.00322385189734025, 0.00319533868425484, 0.00316752254510546, 0.00314037589866941, 0.00311387265933699, 0.00308798813474559, 0.00306269893183335, 0.00303798287050424, 0.00301381890419185, 0.00299018704667616, 0.00296706830458272, 0.00294444461505221, 0.00292229878811497, 0.00290061445336139, 0.00287937601053278, 0.00285856858369911, 0.0028381779787174, 0.00281819064369784], "idf": [["北部", "基隆站", 1266.028, 18.152, 0.594, 1348.411, 17.217, 0.587, 1424.388, 16.264, 0.581, "基隆市/東北角海岸 (站號:466940)"], ["北部", "臺北站", 1847.429, 30.258, 0.653, 1954.296, 31.721, 0.641, 2048.771, 32.78, 0.631, "臺北市中正區 (站號:466920)"], ["北部", "鞍部站", 511.393, 0, 0.393, 574.685, 0, 0.394, 639.945, 0, 0.396, "陽明山竹子湖山區 (站號:466910)"], ["北部", "竹子湖站", 463.328, 7.608, 0.369, 457.716, 6.992, 0.351, 454.099, 6.549, 0.335, "陽明山竹子湖 (站號:466930)"], ["北部", "淡水站", 1082.286, 15.194, 0.579, 1088.08, 12.042, 0.564, 1097.855, 9.48, 0.552, "新北市淡水/三芝 (站號:466900)"], ["北部", "板橋站", 1679.083, 22.535, 0.641, 1865, 25.742, 0.638, 2083.663, 29.464, 0.639, "新北市大漢溪/板橋 (山佳站C0A520代)"], ["北部", "屈尺站", 892.377, 12.461, 0.514, 853.606, 11.478, 0.491, 822.228, 10.548, 0.471, "新店溪上游山區 (站號:C0A580)"], ["北部", "坪林站", 498.258, 0, 0.411, 545.924, 0, 0.411, 593.53, 0, 0.412, "北勢溪翡翠水庫集水區 (站號:01A450)"], ["北部", "桃園站", 814.936, 4.986, 0.528, 703.221, 0, 0.482, 772.353, 0, 0.476, "桃園都會區/南崁溪 (站號:C0C480)"], ["北部", "石門站", 1002.868, 13.32, 0.56, 985.333, 12.106, 0.542, 973.205, 11.145, 0.527, "大漢溪石門水庫集水區 (站號:01C400)"], ["北部", "新竹站", 1232.833, 23.839, 0.586, 1226.179, 23.681, 0.559, 1223.705, 23.463, 0.536, "新竹市東區/頭前溪 (站號:467571)"], ["北部", "竹東站", 686.104, 15.22, 0.443, 668.326, 14.467, 0.426, 654.403, 13.831, 0.411, "頭前溪中游山區 (梅花站C0D360代)"], ["北部", "宜蘭站", 1093.132, 10.146, 0.557, 1096.566, 3.57, 0.54, 1150.982, 0, 0.531, "蘭陽平原/宜蘭市 (站號:467080)"], ["北部", "羅東站", 1361.49, 31.977, 0.556, 1463.036, 35.792, 0.547, 1584.608, 40.268, 0.541, "蘭陽溪流域/冬山河 (站號:C0U640)"], ["北部", "蘇澳站", 1812.043, 20.757, 0.575, 2477.247, 26.034, 0.588, 3334.068, 31.921, 0.603, "蘇澳沿海/東澳山區 (站號:467060)"], ["北部", "太平山站", 696.722, 12.278, 0.383, 818.769, 14.159, 0.388, 946.279, 15.799, 0.393, "宜蘭大同森林山區 (站號:01U560)"], ["中部", "東勢站", 1227.844, 0, 0.553, 1341.462, 0, 0.549, 1457.649, 0, 0.547, "大甲溪中游/東勢區 (站號:C0F850，橫流溪最近代表站)"], ["中部", "和平站", 1227.844, 0, 0.553, 1341.462, 0, 0.549, 1457.649, 0, 0.547, "大甲溪中上游/和平區 (東勢站C0F850/八仙山站代)"], ["中部", "臺中和平站", 1227.844, 0, 0.553, 1341.462, 0, 0.549, 1457.649, 0, 0.547, "大甲溪中上游/和平區 (東勢站C0F850/八仙山站代)"], ["中部", "八仙山站", 566.734, 14.06, 0.387, 560.706, 13.421, 0.365, 557.74, 13.012, 0.346, "大甲溪上游/八仙山森林區 (站號:01F100)"], ["中部", "雪嶺站", 543.343, 13.751, 0.369, 606.24, 16.066, 0.367, 669.809, 18.252, 0.365, "大安溪上游/雪山坑集水區 (站號:C1F941)"], ["中部", "雙崎站", 564.652, 2.116, 0.417, 609.624, 2.098, 0.414, 658.941, 2.199, 0.414, "大安溪中游/雙崎部落 (站號:O1F39)"], ["中部", "谷關站", 980.243, 20.013, 0.472, 856.501, 2.177, 0.437, 916.136, 0, 0.431, "大甲溪上游/谷關溫泉區 (上谷關站C1F871代)"], ["中部", "上谷關站", 980.243, 20.013, 0.472, 856.501, 2.177, 0.437, 916.136, 0, 0.431, "大甲溪上游/上谷關 (站號:C1F871)"], ["中部", "白冷站", 566.734, 14.06, 0.387, 560.706, 13.421, 0.365, 557.74, 13.012, 0.346, "大甲溪天輪/白冷 (八仙山站01F100代)"], ["中部", "大雪山站", 564.652, 2.116, 0.417, 609.624, 2.098, 0.414, 658.941, 2.199, 0.414, "大雪山林道山區 (雙崎站O1F39代)"], ["中部", "苗栗站", 4900.328, 70.301, 0.784, 5719.799, 74.912, 0.791, 6601.358, 79.417, 0.798, "後龍溪流域/苗栗 (後龍站C0E540代)"], ["中部", "大湖站", 695.085, 5.821, 0.462, 661.548, 0, 0.44, 705.462, 0, 0.436, "後龍溪上游/大湖山區 (站號:01E270)"], ["中部", "泰安站", 428.424, 0.261, 0.348, 431.251, 0, 0.332, 438.339, 0, 0.32, "汶水溪/泰安鄉 (橫龍山站01E030代)"], ["中部", "臺中站", 4771.43, 89.081, 0.749, 8999.678, 134.179, 0.811, 17631.115, 189.902, 0.878, "臺中都會區/大里溪 (站號:467490)"], ["中部", "梧棲站", 2399.436, 42.657, 0.674, 3505.114, 62.022, 0.705, 5861.514, 93.724, 0.757, "臺中沿海港區 (站號:467770)"], ["中部", "梨山站", 588.116, 10.798, 0.464, 865.995, 15.68, 0.503, 1212.851, 19.673, 0.536, "大甲溪源流德基水庫上游 (站號:C0F860)"], ["中部", "彰化站", 1139.872, 20.193, 0.598, 1189.641, 21.089, 0.587, 1244.663, 22.168, 0.579, "烏溪下游/彰化平原 (站號:C1G631)"], ["中部", "員林站", 1325.976, 18.781, 0.625, 1350.504, 17.507, 0.617, 1378.411, 16.333, 0.612, "八卦山麓/員林市 (站號:C0G650)"], ["中部", "南投站", 1527.64, 14.804, 0.626, 1429.705, 10.169, 0.601, 1334.437, 6.07, 0.577, "貓羅溪流域/南投 (草屯站C0H960代)"], ["中部", "埔里站", 712.083, 12.106, 0.485, 719.541, 12.225, 0.464, 728.426, 12.259, 0.446, "烏溪上游南港溪/埔里 (站號:C0H890)"], ["中部", "日月潭站", 2253.031, 47.389, 0.633, 2747.217, 56.419, 0.641, 3343.766, 66.262, 0.651, "日月潭水庫集水區 (站號:467650)"], ["中部", "信義站", 2196.007, 57.998, 0.623, 2934.439, 65.595, 0.645, 3755.495, 70.954, 0.664, "濁水溪上游陳有蘭溪 (站號:C0I080)"], ["中部", "合歡山站", 359.228, 24.888, 0.362, 368.622, 4.55, 0.35, 419.357, 0, 0.354, "合歡溪/立霧溪分水嶺 (站號:C0H9C0)"], ["南部", "雲林斗六站", 1368.371, 13.876, 0.591, 1303.65, 7.72, 0.571, 1246.59, 2.511, 0.553, "雲林平原/斗六市 (站號:C1K310)"], ["南部", "草嶺站", 632.096, 19.878, 0.399, 615.11, 19.093, 0.378, 605.733, 18.635, 0.36, "清水溪上游草嶺崩塌區 (站號:01J970)"], ["南部", "嘉義站", 2249.591, 38.058, 0.636, 2679.739, 46.461, 0.636, 3156.455, 55.357, 0.637, "八掌溪下游/嘉義市 (站號:467480)"], ["南部", "阿里山站", 861.37, 44.953, 0.403, 797.085, 35.65, 0.373, 747.668, 27.565, 0.347, "阿里山曾文溪上游林區 (站號:467530)"], ["南部", "奮起湖站", 1050.633, 71.463, 0.419, 973.579, 76.519, 0.386, 911.009, 81.781, 0.357, "阿里山鄉山區/竹崎 (站號:C0M530)"], ["南部", "臺南站", 1174.038, 18.37, 0.575, 1209.985, 17.977, 0.565, 1240.67, 17.507, 0.556, "臺南都會區/鹽水溪 (站號:467410)"], ["南部", "曾文站", 1265.31, 42.836, 0.48, 1469.964, 59.235, 0.475, 1803.425, 83.83, 0.481, "曾文水庫大壩及庫區 (站號:C0O810)"], ["南部", "白河站", 862.076, 8.523, 0.487, 747.602, 2.849, 0.449, 699.292, 0, 0.424, "急水溪白河水庫集水區 (站號:C1X030)"], ["南部", "高雄站", 5755.937, 110.068, 0.759, 10320.178, 154.537, 0.815, 18312.231, 203.657, 0.872, "高雄都會區/愛河前鎮 (站號:467440)"], ["南部", "旗山站", 793.724, 8.028, 0.493, 791.854, 7.851, 0.479, 787.735, 7.635, 0.466, "楠梓仙溪中下游旗山 (站號:O1P47)"], ["南部", "甲仙站", 1359.383, 12.221, 0.519, 1720.967, 16.043, 0.528, 2152.546, 20.263, 0.537, "楠梓仙溪上游甲仙攔河堰 (站號:01P660)"], ["南部", "六龜站", 807.816, 7.929, 0.422, 910.008, 11.731, 0.417, 1047.942, 17.376, 0.418, "荖濃溪流域六龜山區 (站號:01V040)"], ["南部", "屏東站", 1820.346, 35.355, 0.591, 2434.125, 47.167, 0.613, 3208.675, 59.745, 0.636, "屏東市/萬年溪/高屏溪 (站號:00Q070)"], ["南部", "潮州站", 1998.44, 37.978, 0.612, 2309.355, 41.003, 0.619, 2608.017, 43.055, 0.624, "東港溪流域潮州林後 (站號:C0R220)"], ["南部", "恆春站", 2689.258, 43.391, 0.669, 3815.541, 54.537, 0.698, 5236.271, 65.162, 0.724, "恆春半島/牡丹水庫 (站號:467590)"], ["東部", "花蓮站", 1644.614, 35.522, 0.612, 2116.688, 45.014, 0.633, 2668.619, 54.489, 0.652, "花蓮市區/美崙溪 (站號:466990)"], ["東部", "天祥站", 3838.046, 127.702, 0.626, 4820.939, 141.588, 0.644, 6126.503, 158.15, 0.665, "立霧溪流域太魯閣天祥 (站號:C0T820)"], ["東部", "壽豐站", 1591.097, 41.677, 0.61, 1892.105, 48.591, 0.625, 2257.481, 56.226, 0.642, "花東縱谷北段花蓮溪 (站號:C1T890)"], ["東部", "鳳林站", 3844.05, 99.723, 0.7, 15288.259, 206.951, 0.859, 67121.653, 344.872, 1.028, "萬里溪/馬太鞍溪流域 (站號:C1T930)"], ["東部", "玉里站", 923.775, 4.55, 0.501, 1190.345, 4.683, 0.523, 1494.985, 4.798, 0.543, "秀姑巒溪中游玉里 (明里站01T720代)"], ["東部", "成功站", 929.63, 0, 0.521, 1145.799, 0, 0.534, 1376.915, 0, 0.545, "臺東東海岸成功氣象站 (站號:467610)"], ["東部", "臺東站", 887.794, 8.523, 0.542, 966.617, 7.615, 0.538, 1044.016, 6.8, 0.536, "臺東市區/卑南溪下游 (站號:467660)"], ["東部", "大武站", 717.883, 6.908, 0.478, 699.253, 4.713, 0.454, 684.908, 2.807, 0.432, "臺東南端大武溪流域 (站號:467540)"], ["東部", "蘭嶼站", 1559.819, 22.317, 0.646, 1687.019, 24.538, 0.642, 1811.03, 26.751, 0.639, "臺東外海蘭嶼氣象站 (站號:467620)"], ["離島", "澎湖站", 5048.523, 43.594, 0.814, 10097.821, 61.524, 0.887, 18707.091, 78.287, 0.952, "澎湖馬公市都會區 (站號:467350)"], ["離島", "金門站", 1791.658, 18.987, 0.668, 2101.666, 18.979, 0.666, 2420.045, 18.834, 0.665, "離島沿海 (東吉島站467300代)"], ["離島", "馬祖站", 5064.286, 55.784, 0.772, 11025.97, 85.445, 0.85, 23000.829, 117.304, 0.925, "離島北方海域 (彭佳嶼站466950代)"]], "k": 1.13, "inp": {"B5": "橫流溪集水區治理工程", "B6": "臺中和平站", "B7": 1500, "B8": 3.2, "B9": 650, "B10": 0.7, "B37": 0.05}, "pt": [24.2125, 120.9065]};
+
+// ===== ENGINE START =====
+const TS = [2, 5, 10, 20, 25, 50, 100, 200];
+const DT = 0.15; // hr，雨型時距
+
+function normsinv(p) { // Acklam 近似，誤差 < 1.2e-9
+  const a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
+  const b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01, -1.328068155288572e+01];
+  const c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549671010229528e+00, 4.374664141464968e+00, 2.938163982698783e+00];
+  const d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00];
+  const pl = 0.02425, ph = 1 - pl;
+  let q, r;
+  if (p < pl) { q = Math.sqrt(-2 * Math.log(p)); return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+  if (p <= ph) { q = p - 0.5; r = q*q; return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1); }
+  q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+}
+function stats(x) { // 與 Excel AVERAGE / STDEV / SKEW 相同
+  const n = x.length, m = x.reduce((s, v) => s + v, 0) / n;
+  const sd = Math.sqrt(x.reduce((s, v) => s + (v - m) ** 2, 0) / (n - 1));
+  const sk = n / ((n - 1) * (n - 2)) * x.reduce((s, v) => s + ((v - m) / sd) ** 3, 0);
+  return { n, m, sd, sk };
+}
+const wh = (g, z) => (2 / g) * ((1 + g * z / 6 - g * g / 36) ** 3 - 1); // Wilson-Hilferty 頻率因子
+
+function frequency(rain) {
+  const x = rain.slice().sort((a, b) => b - a), n = x.length;
+  const s = stats(x), sl = stats(x.map(Math.log));
+  const al = Math.sqrt(6) / Math.PI * s.sd, u = s.m - 0.5772156649 * al;
+  const D = [
+    { key: 'gum', name: '極值第一型 (Gumbel)', k: 2, f: F => u - al * Math.log(-Math.log(F)) },
+    { key: 'nor', name: '常態分布 (Normal)', k: 2, f: F => s.m + s.sd * normsinv(F) },
+    { key: 'ln2', name: '二母數對數常態 (LN2)', k: 2, f: F => Math.exp(sl.m + sl.sd * normsinv(F)) },
+    { key: 'p3', name: '皮爾遜第三型 (P3)', k: 3, f: F => s.m + wh(s.sk, normsinv(F)) * s.sd },
+    { key: 'lp3', name: '對數皮爾遜第三型 (LP3)', k: 3, f: F => Math.exp(sl.m + wh(sl.sk, normsinv(F)) * sl.sd) },
+  ];
+  const obs = x.map((v, i) => ({ v, F: 1 - (i + 1) / (n + 1), T: (n + 1) / (i + 1) }));
+  for (const d of D) {
+    d.sse = obs.reduce((acc, o) => acc + (o.v - d.f(o.F)) ** 2, 0);
+    d.se = Math.sqrt(d.sse / (n - d.k));
+    d.design = TS.map(T => d.f(1 - 1 / T));
+  }
+  const ranked = D.slice().sort((a, b) => a.se - b.se);
+  ranked.forEach((d, i) => d.rank = i + 1);
+  return { n, s, sl, dists: D, best: ranked[0], obs };
+}
+
+function horner(st, T, tmin) {
+  const set = { '25': [st.a25, st.b25, st.c25], '50': [st.a50, st.b50, st.c50], '100': [st.a100, st.b100, st.c100] };
+  const fac = { 2: [0.6, '25'], 5: [0.74, '25'], 10: [0.85, '25'], 20: [0.95, '25'], 25: [1, '25'], 50: [1, '50'], 100: [1, '100'], 200: [1.12, '100'] }[T];
+  const [a, b, c] = set[fac[1]];
+  return fac[0] * a / Math.pow(tmin + b, c);
+}
+
+function triUH(Tp, Tb, qp, n) {
+  const U = [];
+  for (let k = 1; k <= n; k++) {
+    const t = k * DT;
+    const v = t <= Tp ? qp * t / Tp : (t <= Tb ? qp * (Tb - t) / (Tb - Tp) : 0);
+    if (t > Tb && v === 0) break;
+    U.push(v);
+  }
+  return U;
+}
+function convolve(P, U) {
+  const out = new Array(P.length + U.length - 1).fill(0);
+  for (let i = 0; i < P.length; i++) if (P[i]) for (let j = 0; j < U.length; j++) out[i + j] += P[i] * U[j];
+  return out;
+}
+
+function compute(pt, g, data) {
+  const A = +pt.A, Akm = A / 100, L = +pt.L, Hk = +pt.H / 1000, C = +pt.C;
+  const st = data.idf.find(r => r.name === pt.station) || data.idf[0];
+  const W = 72 * Math.pow(Hk / L, 0.6), tc = L / W, tcMin = tc * 60;
+  const fr = frequency(data.rain.map(r => r[1]));
+  const R1 = fr.best.design, R24 = R1.map(v => v * g.k);
+  const I = TS.map(T => horner(st, T, tcMin));
+  const Qr = I.map(i => C * i * A / 360);
+
+  const scs = { Tp: DT / 2 + 0.6 * tc }; scs.Tb = 2.67 * scs.Tp; scs.qp = 0.208 * Akm / scs.Tp;
+  const Tc = g.tc1 + tc;
+  const tuh = { Tp: DT / 2 + 0.6 * Tc, Tb: DT / 2 + 1.2 * Tc }; tuh.qp = 2 * Akm / (3.6 * tuh.Tb);
+  scs.U = triUH(scs.Tp, scs.Tb, scs.qp, 400);
+  tuh.U = triUH(tuh.Tp, tuh.Tb, tuh.qp, 400);
+  const vol = U => U.reduce((s, v) => s + v, 0) * DT * 3600 / (A * 10);
+  scs.vol = vol(scs.U); tuh.vol = vol(tuh.U);
+
+  const pat = data.pattern;
+  const hydro = R24.map(r => {
+    const P = pat.map(b => b * r), Pe = P.map(p => p * C);
+    return { P, Pe, scs: convolve(Pe, scs.U), tuh: convolve(Pe, tuh.U) };
+  });
+  const Qs = hydro.map(h => Math.max(...h.scs)), Qt = hydro.map(h => Math.max(...h.tuh));
+
+  let method = pt.method;
+  if (method === 'auto') method = A <= 1000 ? 'rational' : 'scs';
+  const Qa = { rational: Qr, scs: Qs, tuh: Qt }[method];
+  const Qhs = Qr.map(q => q * (1 + g.alpha));
+  const Qdf = pt.debris ? Qr.map(q => q / (1 - g.cd)) : null;
+  return { A, Akm, L, H: +pt.H, C, st, W, tc, tcMin, fr, R1, R24, I, Qr, scs, tuh, Tc, hydro, Qs, Qt, method, Qa, Qhs, Qdf };
+}
+// ===== ENGINE END =====
+
+// ===== 狀態 =====
+const METHOD_NAME = { rational: '合理化公式法', scs: 'SCS 單位歷線法', tuh: '三角形單位歷線法 (TUH)' };
+const STORE_KEY = 'catchment-peakflow-v1';
+const data = {
+  rain: DEFAULTS.rain.map(r => [r[0], r[1]]),
+  pattern: DEFAULTS.pattern.slice(),
+  idf: DEFAULTS.idf.map(r => ({ region: r[0], name: r[1], a25: r[2], b25: r[3], c25: r[4], a50: r[5], b50: r[6], c50: r[7], a100: r[8], b100: r[9], c100: r[10], note: r[11] || '' })),
+};
+const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3 };
+let firstVisit = true;
+let points = [{
+  id: 'p1', name: DEFAULTS.inp.B5, lat: DEFAULTS.pt[0], lng: DEFAULTS.pt[1], demo: false,
+  A: DEFAULTS.inp.B7, L: DEFAULTS.inp.B8, H: DEFAULTS.inp.B9, C: DEFAULTS.inp.B10,
+  station: DEFAULTS.inp.B6, method: 'auto', debris: true, poly: null, line: null,
+}];
+let selId = 'p1', selT = 50, win = 'peak';
+
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ points, selId, g, rain: data.rain, selT })); } catch (e) {}
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    if (!s || !Array.isArray(s.points) || !s.points.length) return;
+    firstVisit = false;
+    points = s.points; selId = s.selId || points[0].id; Object.assign(g, s.g || {});
+    if (Array.isArray(s.rain) && s.rain.length >= 10) data.rain = s.rain;
+    if (TS.includes(s.selT)) selT = s.selT;
+  } catch (e) {}
+}
+load();
+const cur = () => points.find(p => p.id === selId) || points[0];
+
+// ===== 工具 =====
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const f1 = v => v == null || isNaN(v) ? '–' : v.toLocaleString('zh-TW', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const f2 = v => v == null || isNaN(v) ? '–' : v.toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function geoArea(ll) { // 球面多邊形面積 (m²)
+  const R = 6378137, d = Math.PI / 180; let s = 0;
+  for (let i = 0; i < ll.length; i++) {
+    const p1 = ll[i], p2 = ll[(i + 1) % ll.length];
+    s += (p2[1] - p1[1]) * d * (2 + Math.sin(p1[0] * d) + Math.sin(p2[0] * d));
+  }
+  return Math.abs(s * R * R / 2);
+}
+function geoLen(ll) {
+  const R = 6371008.8, d = Math.PI / 180; let s = 0;
+  for (let i = 1; i < ll.length; i++) {
+    const [a1, o1] = ll[i - 1], [a2, o2] = ll[i];
+    const h = Math.sin((a2 - a1) * d / 2) ** 2 + Math.cos(a1 * d) * Math.cos(a2 * d) * Math.sin((o2 - o1) * d / 2) ** 2;
+    s += 2 * R * Math.asin(Math.sqrt(h));
+  }
+  return s;
+}
+
+// ===== 地圖 =====
+const map = L.map('map', { zoomControl: true, scrollWheelZoom: 'center' }).setView([cur().lat, cur().lng], 12);
+const NLSC = layer => `https://wmts.nlsc.gov.tw/wmts/${layer}/default/GoogleMapsCompatible/{z}/{y}/{x}`;
+const bases = {
+  emap: L.tileLayer(NLSC('EMAP'), { maxZoom: 19, attribution: '© 內政部國土測繪中心' }),
+  photo: L.tileLayer(NLSC('PHOTO2'), { maxZoom: 19, attribution: '© 內政部國土測繪中心' }),
+  topo: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, attribution: '© OpenStreetMap, SRTM | © OpenTopoMap (CC-BY-SA)' }),
+  osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }),
+};
+let base = bases.emap.addTo(map);
+$('basemap').onchange = e => { map.removeLayer(base); base = bases[e.target.value].addTo(map); };
+
+const geomLayer = L.layerGroup().addTo(map);
+const markerLayer = L.layerGroup().addTo(map);
+let draw = null; // { kind:'poly'|'line', pts:[], temp }
+
+const streamsById = new Map(); // 河系線只留在記憶體，不存入瀏覽器
+const canvasR = L.canvas({ padding: 0.3 });
+function drawGeoms() {
+  geomLayer.clearLayers();
+  for (const p of points) {
+    const sel = p.id === selId;
+    if (p.poly && p.poly.length > 2) L.polygon(p.poly, { color: css('--river'), weight: sel ? 2.5 : 1.5, fillOpacity: sel ? 0.12 : 0.05, dashArray: sel ? null : '4 4' }).addTo(geomLayer);
+    const s = streamsById.get(p.id);
+    if (s && sel) L.polyline(s, { color: css('--river'), weight: 1.2, opacity: 0.8, renderer: canvasR, interactive: false }).addTo(geomLayer);
+    if (p.line && p.line.length > 1) L.polyline(p.line, { color: css('--tuh'), weight: sel ? 3.5 : 2, opacity: sel ? 0.95 : 0.6 }).addTo(geomLayer);
+    if (p.line && p.line.length > 1 && sel) L.circleMarker(p.line[0], { radius: 4, color: css('--tuh'), fillOpacity: 1 }).bindTooltip('最長流路源頭').addTo(geomLayer);
+  }
+}
+
+// ===== DTM 自動圈繪 =====
+let demReady = false, demBusy = false;
+async function runAuto(p, apply) {
+  if (!demReady || demBusy) return;
+  demBusy = true; $('btnAuto').disabled = true; $('mapMsg').classList.remove('err');
+  renderMapMsg('讀取 20 m 地形圖磚並追溯上游集水範圍…');
+  const t0 = performance.now();
+  try {
+    const r = await DEM.delineate(p.lat, p.lng, { snap: +$('snapR').value, onProgress: m => renderMapMsg(m) });
+    const prev = { A: p.A, L: p.L, H: p.H };
+    p.lat = +r.outlet[0].toFixed(6); p.lng = +r.outlet[1].toFixed(6);
+    p.poly = r.polygon.map(q => [+q[0].toFixed(6), +q[1].toFixed(6)]);
+    p.line = r.mainLine.map(q => [+q[0].toFixed(6), +q[1].toFixed(6)]);
+    p.dem = { A: +r.areaHa.toFixed(1), L: +r.L_km.toFixed(3), H: +r.H_m.toFixed(1), zHead: r.zHead, zOut: r.zOut, zMax: r.zMax, snap: r.snapM };
+    streamsById.set(p.id, r.streams);
+    if (apply) { p.A = p.dem.A; p.L = p.dem.L; p.H = p.dem.H; }
+    save(); renderAll();
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+    renderMapMsg(`圈繪完成（${sec} 秒，載入 ${r.tiles} 塊圖磚），控制點已吸附到河道（移動 ${f1(r.snapM)} m）。` +
+      (apply ? `已套用 A、L、H（原為 ${f1(prev.A)} ha、${f2(prev.L)} km、${f1(prev.H)} m）。` : '地形量測值尚未套用到參數，可按下方「套用」。'));
+    map.invalidateSize();
+    const b = L.latLngBounds(p.poly).pad(0.15), z = map.getBoundsZoom(b);
+    if (z >= 8) map.fitBounds(b); else map.setView(b.getCenter(), 13); // 地圖尚未顯示 (尺寸 0) 時的保底
+  } catch (err) {
+    renderMapMsg(esc(err.message)); $('mapMsg').classList.add('err');
+  } finally { demBusy = false; $('btnAuto').disabled = false; }
+}
+$('btnAuto').onclick = () => runAuto(cur(), $('autoApply').checked);
+function renderDemInfo() {
+  const p = cur(), d = p.dem, box = $('demInfo');
+  if (!d) { box.hidden = true; return; }
+  box.hidden = false;
+  const slope = d.H / (d.L * 1000) * 100;
+  const same = Math.abs(p.A - d.A) < 0.05 && Math.abs(p.L - d.L) < 0.0005 && Math.abs(p.H - d.H) < 0.05;
+  box.innerHTML = [
+    ['DTM 集水面積', `${f1(d.A)} ha`], ['最長流路 L', `${f2(d.L)} km`], ['落差 H', `${f1(d.H)} m`],
+    ['源頭高程', `${f1(d.zHead)} m`], ['出口高程', `${f1(d.zOut)} m`], ['平均坡度 H/L', `${f1(slope)} %`],
+  ].map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('') +
+    `<div class="act">${same ? '參數已採用地形量測值。' : `<button class="btn small" id="btnUseDem">套用 A、L、H 到參數</button> 目前參數：${f1(p.A)} ha、${f2(p.L)} km、${f1(p.H)} m`}</div>`;
+  if (!same) $('btnUseDem').onclick = () => { p.A = d.A; p.L = d.L; p.H = d.H; save(); renderAll(); };
+}
+function drawMarkers(results) {
+  markerLayer.clearLayers();
+  for (const p of points) {
+    const r = results[p.id], sel = p.id === selId;
+    const qi = TS.indexOf(selT);
+    const html = `<div class="pt-label${sel ? ' sel' : ''}">${esc(p.name)}　Q${selT} <b>${r ? f1(r.Qa[qi]) : '–'}</b></div>`;
+    const m = L.marker([p.lat, p.lng], { draggable: true, title: p.name }).addTo(markerLayer);
+    m.bindTooltip(html, { permanent: true, direction: 'right', offset: [10, -14], className: 'leaflet-tooltip-plain', opacity: 1 });
+    m.on('click', () => { selId = p.id; renderAll(); });
+    m.on('dragend', e => {
+      const ll = e.target.getLatLng(); p.lat = +ll.lat.toFixed(6); p.lng = +ll.lng.toFixed(6); p.demo = false; selId = p.id; save();
+      if ($('autoOnDrag').checked && demReady) runAuto(p, $('autoApply').checked); else renderAll();
+    });
+  }
+}
+// 讓 tooltip 不帶 Leaflet 預設白框（內容自帶樣式）
+const st = document.createElement('style');
+st.textContent = '.leaflet-tooltip-plain{background:none;border:0;box-shadow:none;padding:0}.leaflet-tooltip-plain:before{display:none}';
+document.head.appendChild(st);
+
+function renderMapMsg(text) {
+  const p = cur();
+  $('mapMsg').classList.remove('err');
+  $('mapMsg').innerHTML = text || (p.demo
+    ? '目前標記為<b>示意位置</b>，請拖曳到實際控制點，再按「依控制點自動圈繪集水區」。'
+    : `控制點座標 ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}｜點地圖任一處可查高程`);
+}
+function setDrawUI(on) {
+  $('btnFinish').hidden = !on; $('btnCancel').hidden = !on;
+  ['btnAddPt', 'btnDrawPoly', 'btnDrawLine', 'btnClearGeom'].forEach(id => $(id).disabled = on);
+  map.doubleClickZoom[on ? 'disable' : 'enable']();
+}
+function startDraw(kind) {
+  draw = { kind, pts: [], temp: L.layerGroup().addTo(map) };
+  setDrawUI(true);
+  renderMapMsg(kind === 'poly' ? '在地圖上依序點選<b>集水區邊界</b>，雙擊或按「完成繪製」結束。' : '由<b>上游往下游</b>點選主流線，雙擊或按「完成繪製」結束。');
+}
+function redrawTemp() {
+  draw.temp.clearLayers();
+  const c = css('--river');
+  if (draw.pts.length > 1) (draw.kind === 'poly' ? L.polygon : L.polyline)(draw.pts, { color: draw.kind === 'poly' ? c : css('--tuh'), weight: 2, dashArray: '5 4', fillOpacity: 0.08 }).addTo(draw.temp);
+  draw.pts.forEach(q => L.circleMarker(q, { radius: 3, color: c, fillOpacity: 1 }).addTo(draw.temp));
+  if (draw.pts.length > 1) {
+    const v = draw.kind === 'poly' ? `面積約 <b>${f1(geoArea(draw.pts) / 1e4)} ha</b>` : `長度約 <b>${f2(geoLen(draw.pts) / 1000)} km</b>`;
+    renderMapMsg(`已點 ${draw.pts.length} 點，${v}。雙擊或按「完成繪製」結束。`);
+  }
+}
+function finishDraw() {
+  if (!draw) return;
+  const p = cur(), k = draw.kind, pts = draw.pts;
+  map.removeLayer(draw.temp); draw = null; setDrawUI(false);
+  if (k === 'poly' && pts.length >= 3) { p.poly = pts; }
+  else if (k === 'line' && pts.length >= 2) { p.line = pts; }
+  else { renderMapMsg('點數不足，未儲存圖形。'); return; }
+  save(); renderAll();
+}
+map.on('click', async e => {
+  if (draw) { draw.pts.push([+e.latlng.lat.toFixed(6), +e.latlng.lng.toFixed(6)]); redrawTemp(); return; }
+  if (!demReady) return;
+  const z = await DEM.elevation(e.latlng.lat, e.latlng.lng).catch(() => null);
+  L.popup({ closeButton: false, autoPan: false }).setLatLng(e.latlng)
+    .setContent(z == null ? '此處無地形資料' : `高程 <b class="num">${f1(z)}</b> m<br><span class="muted">${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}</span>`).openOn(map);
+});
+map.on('dblclick', () => { if (draw) { draw.pts.pop(); finishDraw(); } }); // 雙擊會多觸發一次 click
+$('btnDrawPoly').onclick = () => startDraw('poly');
+$('btnDrawLine').onclick = () => startDraw('line');
+$('btnFinish').onclick = finishDraw;
+$('btnCancel').onclick = () => { if (draw) { map.removeLayer(draw.temp); draw = null; setDrawUI(false); renderMapMsg(); } };
+$('btnClearGeom').onclick = () => { const p = cur(); p.poly = null; p.line = null; p.dem = null; streamsById.delete(p.id); save(); renderAll(); };
+$('btnAddPt').onclick = () => {
+  const c = map.getCenter(), src = cur();
+  const id = 'p' + Date.now().toString(36);
+  points.push({ ...src, id, name: `控制點 ${points.length + 1}`, lat: +c.lat.toFixed(6), lng: +c.lng.toFixed(6), demo: false, poly: null, line: null });
+  selId = id; save(); renderAll();
+  renderMapMsg('已在地圖中心新增控制點（參數複製自上一個控制點），請拖曳到正確位置並修改參數。');
+};
+$('btnDelPt').onclick = () => {
+  if (points.length <= 1) { renderMapMsg('至少要保留一個控制點。'); return; }
+  points = points.filter(p => p.id !== selId); selId = points[0].id; save(); renderAll();
+};
+
+// ===== 表單 =====
+const stationSel = $('f_station');
+function fillStations() {
+  stationSel.innerHTML = '';
+  let grp = null, last = null;
+  for (const s of data.idf) {
+    if (s.region !== last) { grp = document.createElement('optgroup'); grp.label = s.region; stationSel.appendChild(grp); last = s.region; }
+    const o = document.createElement('option'); o.value = s.name; o.textContent = s.name + (s.note ? `｜${s.note}` : ''); grp.appendChild(o);
+  }
+}
+fillStations();
+const F = { name: 'f_name', A: 'f_A', L: 'f_L', H: 'f_H', C: 'f_C', station: 'f_station', method: 'f_method' };
+function fillForm() {
+  const p = cur();
+  for (const [k, id] of Object.entries(F)) $(id).value = p[k];
+  $('f_debris').value = p.debris ? '1' : '0';
+  $('g_k').value = g.k; $('g_tc1').value = g.tc1; $('g_alpha').value = g.alpha; $('g_cd').value = g.cd;
+  const manual = !p.dem; // DTM 圈繪結果改在地圖下方的量測表顯示
+  const a = manual && p.poly && p.poly.length > 2 ? geoArea(p.poly) / 1e4 : null, l = manual && p.line && p.line.length > 1 ? geoLen(p.line) / 1000 : null;
+  $('mapA').innerHTML = a ? `地圖量測 ${f1(a)} ha <button class="btn small" id="useA">套用</button>` : '';
+  $('mapL').innerHTML = l ? `地圖量測 ${f2(l)} km <button class="btn small" id="useL">套用</button>` : '';
+  if (a) $('useA').onclick = () => { p.A = +a.toFixed(1); save(); renderAll(); };
+  if (l) $('useL').onclick = () => { p.L = +l.toFixed(3); save(); renderAll(); };
+}
+for (const [k, id] of Object.entries(F)) $(id).addEventListener('change', e => {
+  const p = cur(); p[k] = e.target.type === 'number' ? +e.target.value : e.target.value; save(); renderAll();
+});
+$('f_debris').onchange = e => { cur().debris = e.target.value === '1'; save(); renderAll(); };
+for (const [k, id] of [['k', 'g_k'], ['tc1', 'g_tc1'], ['alpha', 'g_alpha'], ['cd', 'g_cd']])
+  $(id).addEventListener('change', e => { g[k] = +e.target.value; save(); renderAll(); });
+
+function validate(p) {
+  const bad = [];
+  if (!(p.A > 0)) bad.push('面積 A 需大於 0');
+  if (!(p.L > 0)) bad.push('主流長度 L 需大於 0');
+  if (!(p.H > 0)) bad.push('落差 H 需大於 0');
+  if (!(p.C > 0 && p.C <= 1)) bad.push('逕流係數 C 需介於 0～1');
+  if (!(g.k > 0)) bad.push('轉換係數 k 需大於 0');
+  if (!(g.cd >= 0 && g.cd < 1)) bad.push('Cd 需介於 0～1');
+  return bad;
+}
+
+// ===== 圖表 =====
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+let chH = null, chF = null;
+function themeChart(c) {
+  const ink = css('--muted'), grid = css('--line');
+  for (const ax of Object.values(c.options.scales)) {
+    ax.ticks = { ...(ax.ticks || {}), color: ink }; ax.grid = { ...(ax.grid || {}), color: grid };
+    if (ax.title) ax.title.color = ink;
+  }
+  c.options.plugins.legend.labels.color = css('--ink');
+}
+function renderHydro(r) {
+  const i = TS.indexOf(selT), h = r.hydro[i];
+  const n = Math.max(h.scs.length, h.tuh.length);
+  let a = 0, b = n;
+  if (win === 'peak') {
+    const pk = h.tuh.indexOf(Math.max(...h.tuh));
+    a = Math.max(0, pk - 10); b = Math.min(n, pk + 16);
+  }
+  const labels = [], rain = [], s = [], t = [], rat = [];
+  for (let k = a; k < b; k++) {
+    labels.push(((k + 1) * DT).toFixed(2));
+    rain.push(h.P[k] ?? null); s.push(h.scs[k] ?? 0); t.push(h.tuh[k] ?? 0); rat.push(r.Qr[i]);
+  }
+  const cfg = {
+    data: {
+      labels, datasets: [
+        { type: 'bar', label: '時段雨量 (mm)', data: rain, yAxisID: 'yr', backgroundColor: css('--rain'), barPercentage: 1, categoryPercentage: 0.9, order: 3 },
+        { type: 'line', label: 'SCS 單位歷線', data: s, yAxisID: 'y', borderColor: css('--river'), backgroundColor: css('--river-soft'), fill: true, pointRadius: 0, borderWidth: 2.2, tension: 0.25, order: 1 },
+        { type: 'line', label: 'TUH 三角形單位歷線', data: t, yAxisID: 'y', borderColor: css('--tuh'), pointRadius: 0, borderWidth: 2.2, tension: 0.25, order: 2 },
+        { type: 'line', label: '合理化公式洪峰', data: rat, yAxisID: 'y', borderColor: css('--rational'), borderDash: [6, 4], pointRadius: 0, borderWidth: 1.6, order: 0 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, usePointStyle: false } },
+        tooltip: { callbacks: { title: it => `t = ${it[0].label} hr`, label: c => `${c.dataset.label}：${c.parsed.y == null ? '–' : c.parsed.y.toFixed(c.datasetIndex === 0 ? 2 : 1)}` } }
+      },
+      scales: {
+        x: { title: { display: true, text: '時間 (hr)' }, ticks: { maxTicksLimit: 12, autoSkip: true } },
+        y: { position: 'left', beginAtZero: true, title: { display: true, text: '流量 Q (cms)' }, suggestedMax: Math.max(r.Qr[i], ...t, ...s) * 1.35 },
+        yr: { position: 'right', reverse: true, beginAtZero: true, suggestedMax: Math.max(...h.P) * 3, title: { display: true, text: '雨量 (mm / 9 分)' }, grid: { drawOnChartArea: false } },
+      }
+    }
+  };
+  if (chH) chH.destroy();
+  chH = new Chart($('chHydro'), cfg); themeChart(chH); chH.update();
+  const tp = (h.tuh.indexOf(Math.max(...h.tuh)) + 1) * DT, sp = (h.scs.indexOf(Math.max(...h.scs)) + 1) * DT;
+  $('hydroHint').textContent = `${selT} 年一遇｜R24 = ${f1(r.R24[i])} mm`;
+  $('hydroNote').innerHTML = `SCS 洪峰 <b class="num">${f1(r.Qs[i])}</b> cms（t = ${sp.toFixed(2)} hr）；TUH 洪峰 <b class="num">${f1(r.Qt[i])}</b> cms（t = ${tp.toFixed(2)} hr）；合理化公式 <b class="num">${f1(r.Qr[i])}</b> cms。有效雨量 Pe = C × 時段雨量。`;
+}
+function renderFreq(r) {
+  const fr = r.fr, best = fr.best;
+  const curve = T => ({ x: T, y: null });
+  const Tgrid = [1.05, 1.25, 1.5, 2, 3, 5, 7, 10, 15, 20, 25, 35, 50, 75, 100, 150, 200];
+  const colors = { gum: '#9a8f5a', nor: '#7b8c93', ln2: '#5d9a7c', p3: css('--tuh'), lp3: css('--river') };
+  const ds = fr.dists.map(d => ({
+    type: 'line', label: `${d.name}${d === best ? '（最佳）' : ''}`, data: Tgrid.map(T => ({ x: T, y: d.f(1 - 1 / T) })),
+    borderColor: colors[d.key], borderWidth: d === best ? 2.6 : 1.1, borderDash: d === best ? [] : [4, 3], pointRadius: 0, tension: 0.2,
+  }));
+  ds.unshift({ type: 'scatter', label: '觀測值 (Weibull 點繪)', data: fr.obs.map(o => ({ x: o.T, y: o.v })), backgroundColor: css('--ink'), pointRadius: 3 });
+  if (chF) chF.destroy();
+  chF = new Chart($('chFreq'), {
+    data: { datasets: ds },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}：T = ${c.parsed.x.toFixed(1)} 年, ${c.parsed.y.toFixed(1)} mm` } } },
+      scales: {
+        x: { type: 'logarithmic', min: 1, max: 200, title: { display: true, text: '重現期距 T (年，對數)' }, ticks: { callback: v => [1, 2, 5, 10, 20, 50, 100, 200].includes(v) ? v : '' } },
+        y: { title: { display: true, text: '年最大一日雨量 (mm)' } },
+      }
+    }
+  });
+  themeChart(chF); chF.update();
+  let h = `<thead><tr><th>機率分布</th><th>SSE</th><th>SE</th><th>排名</th>${TS.map(T => `<th>${T} 年</th>`).join('')}</tr></thead><tbody>`;
+  for (const d of fr.dists) h += `<tr class="${d === best ? 'adopt' : ''}"><td>${d.name}</td><td class="n">${f1(d.sse)}</td><td class="n">${f2(d.se)}</td><td class="n">${d.rank}</td>${d.design.map(v => `<td class="n">${f1(v)}</td>`).join('')}</tr>`;
+  h += `<tr><td>24 hr 設計雨量 R24 = ${g.k.toFixed(2)} × 最佳分布</td><td></td><td></td><td></td>${r.R24.map(v => `<td class="n"><b>${f1(v)}</b></td>`).join('')}</tr></tbody>`;
+  $('tblFreq').innerHTML = h;
+}
+function renderTable(r) {
+  const i0 = TS.indexOf(selT);
+  const rows = [
+    ['Horner 降雨強度 I (mm/hr)', r.I, null, `t = ${f1(r.tcMin)} 分`],
+    ['24 hr 設計雨量 R24 (mm)', r.R24, null, `k = ${g.k.toFixed(2)} × 一日暴雨`],
+    ['合理化公式法 Q (cms)', r.Qr, 'rational', '', css('--rational')],
+    ['SCS 單位歷線法 Q (cms)', r.Qs, 'scs', '', css('--river')],
+    ['三角形單位歷線 TUH Q (cms)', r.Qt, 'tuh', '', css('--tuh')],
+    ['高含砂水流 Q (cms)', r.Qhs, null, `合理化 × (1 + ${g.alpha})`],
+    ['土石流流量 Q (cms)', r.Qdf, null, r.Qdf ? `合理化 ÷ (1 − ${g.cd})` : '無土石流潛勢'],
+    ['採用比流量 q (cms/km²)', r.Qa.map(q => q / r.Akm), null, METHOD_NAME[r.method]],
+  ];
+  let h = `<thead><tr><th>項目</th>${TS.map(T => `<th>${T} 年</th>`).join('')}</tr></thead><tbody>`;
+  for (const [name, vals, key, tag, color] of rows) {
+    const adopt = key && key === r.method;
+    h += `<tr class="${adopt ? 'adopt' : ''}"><td>${color ? `<span class="sw" style="background:${color}"></span>` : ''}${name}${adopt ? '　<span class="method-pill">採用</span>' : ''}${tag ? `<span class="tag">${tag}</span>` : ''}</td>`;
+    h += TS.map((T, i) => `<td class="n${adopt && i === i0 ? ' hl' : ''}">${vals ? (name.startsWith('Horner') || name.startsWith('24') ? f1(vals[i]) : f2(vals[i])) : '–'}</td>`).join('') + '</tr>';
+  }
+  $('tblRes').innerHTML = h + '</tbody>';
+
+  const fl = [];
+  if (r.st.b25 === 0) fl.push(['warn', `${r.st.name} 的 Horner 參數 b = 0，短延時強度偏高（I25 = ${f1(r.I[4])} mm/hr），建議對照水利署 107 年原始報告確認。`]);
+  if (r.tcMin < 10) fl.push(['warn', `集流時間僅 ${f1(r.tcMin)} 分鐘（只計河道流時間），合理化公式未加坡面流時間。`]);
+  const hack = 1.4 * Math.pow(r.Akm / 2.59, 0.6) * 1.609;
+  if (r.L < hack * 0.5) fl.push(['warn', `主流長度 ${f2(r.L)} km 相對面積 ${f2(r.Akm)} km² 偏短（Hack 經驗式約 ${f1(hack)} km），請核對地形量測。`]);
+  fl.push([Math.abs(r.scs.vol - 1) < 0.1 && Math.abs(r.tuh.vol - 1) < 0.1 ? 'ok' : 'warn', `單位歷線體積檢核：SCS ${(r.scs.vol * 100).toFixed(1)}%、TUH ${(r.tuh.vol * 100).toFixed(1)}%（以 0.15 hr 取樣，100% 為守恆）。`]);
+  const sum = data.pattern.reduce((s, v) => s + v, 0);
+  if (Math.abs(sum - 1) > 0.002) fl.push(['bad', `雨型比重加總為 ${sum.toFixed(4)}，不等於 1。`]);
+  const q = r.Qa[5] / r.Akm;
+  fl.push([q >= 50 && q <= 80 ? 'ok' : 'warn', `採用 50 年比流量 ${f1(q)} cms/km²，中部陡峭野溪經驗範圍約 50～80 cms/km²。`]);
+  $('flags').innerHTML = fl.map(([c, t]) => `<div class="flag ${c}">${t}</div>`).join('');
+}
+function renderKpis(r) {
+  const i = TS.indexOf(selT);
+  const k = [
+    ['集流時間 tc', f1(r.tcMin), '分'],
+    [`I${selT}（Horner）`, f1(r.I[i]), 'mm/hr'],
+    [`R24（${selT} 年）`, f1(r.R24[i]), 'mm'],
+    [`採用 Q${selT}`, f1(r.Qa[i]), 'cms', true],
+    ['比流量 q', f1(r.Qa[i] / r.Akm), 'cms/km²'],
+  ];
+  $('kpis').innerHTML = k.map(([a, v, u, hero]) => `<div class="kpi${hero ? ' hero' : ''}"><div class="k">${a}</div><div class="v">${v}<span class="u">${u}</span></div>${hero ? `<span class="method-pill">${METHOD_NAME[r.method]}</span>` : ''}</div>`).join('');
+}
+function renderAllTable(results) {
+  let h = `<thead><tr><th>控制點</th><th>A (ha)</th><th>採用方法</th><th>Q25</th><th>Q50</th><th>Q100</th><th>q50</th></tr></thead><tbody>`;
+  for (const p of points) {
+    const r = results[p.id];
+    h += `<tr data-id="${p.id}" style="cursor:pointer" class="${p.id === selId ? 'adopt' : ''}"><td>${esc(p.name)}</td>` + (r
+      ? `<td class="n">${f1(r.A)}</td><td>${METHOD_NAME[r.method]}</td><td class="n">${f1(r.Qa[4])}</td><td class="n">${f1(r.Qa[5])}</td><td class="n">${f1(r.Qa[6])}</td><td class="n">${f1(r.Qa[5] / r.Akm)}</td>`
+      : `<td colspan="6" class="muted">參數不完整</td>`) + '</tr>';
+  }
+  $('tblAll').innerHTML = h + '</tbody>';
+  $('tblAll').querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => { selId = tr.dataset.id; save(); renderAll(); });
+}
+function renderChips() {
+  $('pointChips').innerHTML = points.map(p => `<button class="chip${p.id === selId ? ' sel' : ''}" data-id="${p.id}">${esc(p.name)}</button>`).join('');
+  $('pointChips').querySelectorAll('.chip').forEach(b => b.onclick = () => { selId = b.dataset.id; save(); renderAll(); const p = cur(); map.panTo([p.lat, p.lng]); });
+}
+$('segT').innerHTML = TS.map(T => `<button data-t="${T}">${T}</button>`).join('');
+$('segT').onclick = e => { const b = e.target.closest('button'); if (!b) return; selT = +b.dataset.t; save(); renderAll(); };
+$('segWin').onclick = e => { const b = e.target.closest('button'); if (!b) return; win = b.dataset.w; renderAll(); };
+
+let lastResults = {};
+function renderAll() {
+  const results = {};
+  for (const p of points) if (!validate(p).length) results[p.id] = compute(p, g, data);
+  lastResults = results;
+  const p = cur(), r = results[p.id];
+  renderChips(); fillForm(); drawGeoms(); drawMarkers(results); renderAllTable(results); renderDemInfo();
+  $('segT').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.t === selT));
+  $('segWin').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.w === win));
+  if (!r) {
+    $('kpis').innerHTML = `<div class="kpi" style="grid-column:1/-1"><div class="k">無法計算</div><div>${validate(p).join('、')}</div></div>`;
+    return;
+  }
+  renderKpis(r); renderHydro(r); renderTable(r); renderFreq(r);
+  if (!draw) renderMapMsg();
+}
+
+// ===== 分頁 =====
+document.querySelector('.tabs').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['tabRes', 'tabFreq', 'tabRain', 'tabAll'].forEach(id => $(id).hidden = id !== b.dataset.tab);
+  if (b.dataset.tab === 'tabFreq' && chF) chF.resize();
+};
+
+// ===== 雨量資料 =====
+function fillRainText() { $('rainText').value = data.rain.map(r => `${r[0]}\t${r[1]}`).join('\n'); }
+fillRainText();
+$('btnRainApply').onclick = () => {
+  const rows = $('rainText').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => l.split(/[\s,，]+/).map(Number));
+  const ok = rows.filter(r => r.length >= 2 && isFinite(r[0]) && r[1] > 0).map(r => [r[0], r[1]]);
+  if (ok.length < 10) { $('rainMsg').textContent = `只讀到 ${ok.length} 筆有效資料，頻率分析至少需要 10 筆。`; return; }
+  data.rain = ok; save(); renderAll();
+  $('rainMsg').textContent = `已套用 ${ok.length} 筆（${ok[0][0]}～${ok[ok.length - 1][0]}），最佳分布：${lastResults[selId]?.fr.best.name || '–'}。`;
+};
+
+// ===== 匯入 Excel =====
+$('xlsxFile').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const v = (sh, a) => { const ws = wb.Sheets[sh]; const c = ws && ws[a]; return c ? c.v : undefined; };
+    const msg = [];
+    const S3 = '一日暴雨頻率與最佳分布', S4 = '單位歷線與洪水合成', S2 = '設計洪峰流量綜合計算表';
+    if (wb.Sheets[S3]) {
+      const rain = [];
+      for (let r = 5; r < 200; r++) { const y = v(S3, 'B' + r), x = v(S3, 'C' + r); if (typeof x !== 'number') break; rain.push([y, x]); }
+      if (rain.length >= 10) { data.rain = rain; msg.push(`雨量 ${rain.length} 筆`); }
+      const k = v(S3, 'T35'); if (typeof k === 'number') { g.k = k; msg.push(`k = ${k}`); }
+    }
+    if (wb.Sheets[S4]) {
+      const pat = []; for (let r = 12; r < 172; r++) { const b = v(S4, 'B' + r); if (typeof b === 'number') pat.push(b); }
+      if (pat.length === 160) { data.pattern = pat; msg.push('雨型 160 時階'); }
+    }
+    if (wb.Sheets['IDF_Table']) {
+      const idf = [];
+      for (let r = 4; r < 300; r++) {
+        const nm = v('IDF_Table', 'B' + r); if (!nm) break;
+        const n = c => +v('IDF_Table', c + r);
+        idf.push({ region: v('IDF_Table', 'A' + r) || '', name: nm, a25: n('C'), b25: n('D'), c25: n('E'), a50: n('F'), b50: n('G'), c50: n('H'), a100: n('I'), b100: n('J'), c100: n('K'), note: v('IDF_Table', 'L' + r) || '' });
+      }
+      if (idf.length) { data.idf = idf; fillStations(); msg.push(`IDF ${idf.length} 站`); }
+    }
+    if (wb.Sheets[S2]) {
+      const p = cur();
+      const map2 = { name: 'B5', station: 'B6', A: 'B7', L: 'B8', H: 'B9', C: 'B10' };
+      for (const [k, a] of Object.entries(map2)) { const x = v(S2, a); if (x !== undefined && x !== '') p[k] = x; }
+      const tc1 = v(S2, 'B37'); if (typeof tc1 === 'number') g.tc1 = tc1;
+      msg.push(`主控台參數 → ${p.name}`);
+    }
+    fillRainText(); save(); renderAll();
+    renderMapMsg(`已載入「${esc(file.name)}」：${msg.join('、') || '找不到可辨識的工作表'}。`);
+  } catch (err) {
+    renderMapMsg(`讀取失敗：${esc(err.message)}。請確認是 .xlsx 檔，且工作表名稱與 v17 相同。`);
+  }
+  e.target.value = '';
+};
+
+// ===== 匯出 =====
+function download(name, text) {
+  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+$('btnExportQ').onclick = () => {
+  const r = lastResults[selId]; if (!r) return;
+  let s = `時間(hr),${TS.map(T => `雨量${T}年(mm),SCS_Q${T}(cms),TUH_Q${T}(cms)`).join(',')}\n`;
+  const n = Math.max(...r.hydro.map(h => Math.max(h.scs.length, h.tuh.length)));
+  for (let k = 0; k < n; k++) s += ((k + 1) * DT).toFixed(2) + ',' + r.hydro.map(h => [h.P[k] ?? 0, h.scs[k] ?? 0, h.tuh[k] ?? 0].map(x => x.toFixed(4)).join(',')).join(',') + '\n';
+  download(`${cur().name}_流量歷線.csv`, s);
+};
+$('btnExportT').onclick = () => {
+  const r = lastResults[selId]; if (!r) return;
+  const rows = [['項目', ...TS.map(T => `${T}年`)], ['Horner I (mm/hr)', ...r.I], ['R24 (mm)', ...r.R24], ['合理化 Q (cms)', ...r.Qr], ['SCS Q (cms)', ...r.Qs], ['TUH Q (cms)', ...r.Qt], ['高含砂 Q (cms)', ...r.Qhs], ['土石流 Q (cms)', ...(r.Qdf || TS.map(() => '-'))], [`採用 ${METHOD_NAME[r.method]} (cms)`, ...r.Qa]];
+  download(`${cur().name}_成果表.csv`, rows.map(x => x.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(',')).join('\n'));
+};
+
+// ===== 主題 =====
+$('btnTheme').onclick = () => {
+  const root = document.documentElement, dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const curT = root.dataset.theme || (dark ? 'dark' : 'light');
+  root.dataset.theme = curT === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem(STORE_KEY + '-theme', root.dataset.theme); } catch (e) {}
+  renderAll();
+};
+try { const t = localStorage.getItem(STORE_KEY + '-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderAll);
+
+renderAll();
+DEM.init('dem/').then(() => {
+  demReady = true;
+  if (firstVisit) {
+    runAuto(cur(), false).then(() => renderMapMsg('預設控制點依 Excel 面積 (約 15 km²) 在橫流溪主流反推，為示意位置；DTM 量測值尚未套用，可按「套用」比較成果。'));
+  } else renderMapMsg();
+}).catch(err => {
+  $('btnAuto').disabled = true;
+  renderMapMsg(`地形資料載入失敗（${esc(err.message)}），自動圈繪暫時無法使用，其餘計算不受影響。`); $('mapMsg').classList.add('err');
+});
+</script>
+</body>
+</html>
