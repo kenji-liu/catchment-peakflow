@@ -147,7 +147,10 @@ table.res .tag { font-size: 11px; color: var(--muted); display: block; font-weig
 .flag { font-size: 12.5px; padding: 6px 10px; border-radius: 5px; border-left: 3px solid var(--warn); background: var(--surface-2); }
 .flag.bad { border-left-color: var(--bad); }
 .flag.ok { border-left-color: var(--ok); }
-textarea#rainText { width: 100%; min-height: 180px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 5px; padding: 8px; font-family: var(--font-data); font-size: 12.5px; }
+h3.sub-h { font-size: 13.5px; margin: 16px 0 6px; }
+.ser-status { margin: 10px 0 0; padding: 8px 10px; border-radius: 5px; background: var(--surface-2); border-left: 3px solid var(--warn); font-size: 12.5px; line-height: 1.6; }
+.ser-status.ok { border-left-color: var(--ok); }
+textarea#h24Text, textarea#rainText { width: 100%; min-height: 180px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 5px; padding: 8px; font-family: var(--font-data); font-size: 12.5px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
@@ -160,7 +163,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 <header class="top">
   <div>
     <h1>集水區洪峰流量圖台</h1>
-    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v19</div>
+    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v20</div>
   </div>
   <div class="spacer"></div>
   <label class="btn" for="xlsxFile" title="讀取 v17 活頁簿的雨量、雨型、IDF 與主控台參數">載入 Excel</label>
@@ -256,7 +259,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
         <div class="form">
           <div class="field wide"><label for="g_abc">Horner 參數來源</label><select id="g_abc"><option value="lib">203144 案 106 年報告 P3（各重現期自有 a、b、c）優先，其餘站用 IDF 表</option><option value="idf">水利署 107 年 IDF 表（僅 25/50/100 年，其餘以倍數換算）</option></select></div>
           <div class="field wide"><label for="g_pat">設計雨型</label><select id="g_pat"><option value="horner">Horner 公式交替區塊法（依雨量站，預設）</option><option value="fixed">固定雨型（Excel 203144 案比例）</option></select></div>
-          <div class="field"><label for="g_k">一日暴雨 → 24 hr 轉換係數 k</label><input id="g_k" type="number" step="0.01" min="0.5"></div>
+          <div class="field"><label for="g_k">一日 → 24 hr 轉換係數 k（僅一日序列推估時使用）</label><input id="g_k" type="number" step="0.01" min="0.5"></div>
           <div class="field"><label for="g_tc1">坡面集流時間 Tc1 (hr，TUH 用)</label><input id="g_tc1" type="number" step="0.01" min="0"></div>
           <div class="field"><label for="g_alpha">高含砂增量比 α</label><input id="g_alpha" type="number" step="0.01" min="0"></div>
           <div class="field"><label for="g_cd">土石流體積濃度 Cd</label><input id="g_cd" type="number" step="0.01" min="0" max="0.9"></div>
@@ -300,13 +303,30 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
       <div id="tabFreq" hidden>
         <div class="chart-box short"><canvas id="chFreq" aria-label="頻率分析圖"></canvas></div>
         <div class="scroll-x" style="margin-top:12px"><table class="res" id="tblFreq"></table></div>
+        <div class="st-info" id="outlierInfo" style="margin-top:10px"></div>
       </div>
 
       <div id="tabRain" hidden>
-        <p class="small muted" style="margin-top:0">每行一筆「年份 年最大一日雨量(mm)」，以空白、Tab 或逗號分隔；可直接從 Excel 貼上兩欄。</p>
+        <div class="field" style="max-width:520px"><label for="ser_mode">採用的雨量序列</label>
+          <select id="ser_mode"><option value="h24">年最大連續 24 小時雨量序列（直接頻率分析，不乘 k）</option><option value="1d">年最大一日雨量序列 × k 換算 24 小時</option></select></div>
+        <div class="ser-status" id="serStatus"></div>
+
+        <h3 class="sub-h">年最大連續 24 小時雨量序列</h3>
+        <p class="small muted" style="margin:0 0 6px">每行一年：「年份 值」；多站時第一行寫站名（如「年 梧棲 神岡」），之後每行「年份 站1 站2 …」，缺值留空或寫 -。可直接從 Excel 貼上。
+          多站依下方權重加總成一條序列（某年缺站時對其餘站權重重新正規化）。</p>
+        <textarea id="h24Text" spellcheck="false" aria-label="年最大連續 24 小時雨量資料" placeholder="年&#9;梧棲&#9;神岡&#10;1996&#9;322.4&#9;331.3&#10;1997&#9;245.5&#9;253.0"></textarea>
+        <div class="field" style="margin-top:8px;max-width:520px"><label for="h24W">各站權重 (%)，逗號分隔；空白＝各站平均</label><input id="h24W" type="text" placeholder="例如 65.91, 34.09"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary small" id="btnH24Apply">套用 24 小時序列</button>
+          <button class="btn small" id="btnH24Clear">清除（改以一日序列 × k 推估）</button>
+          <span class="small muted" id="h24Msg"></span>
+        </div>
+
+        <h3 class="sub-h">年最大一日雨量序列（無 24 小時資料時推估用）</h3>
+        <p class="small muted" style="margin:0 0 6px">每行一筆「年份 年最大一日雨量(mm)」，以空白、Tab 或逗號分隔。轉換係數 k 在左側「進階參數」。</p>
         <textarea id="rainText" spellcheck="false" aria-label="年最大一日雨量資料"></textarea>
         <div class="row" style="margin-top:8px">
-          <button class="btn primary small" id="btnRainApply">套用雨量資料</button>
+          <button class="btn primary small" id="btnRainApply">套用一日雨量資料</button>
           <span class="small muted" id="rainMsg"></span>
         </div>
       </div>
@@ -320,7 +340,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 </div>
 
 <footer>
-  公式：Rziha W = 72(H/L)<sup>0.6</sup>；合理化 Q = CIA/360；SCS Tp = D/2 + 0.6t<sub>c</sub>、Tb = 2.67Tp、qp = 0.208A/Tp；TUH Tp = D/2 + 0.6Tc、Tb = D/2 + 1.2Tc、qp = 2A/(3.6Tb)；R24 = k × 一日暴雨。Horner 參數：大安溪 203144 案 6 站有 2～200 年各自的 P3 參數 (20 年以 10、25 年內插)；其餘站只有 25/50/100 年參數，其他重現期沿用 Excel 換算倍數 (2/5/10/20 年 = 0.60/0.74/0.85/0.95 × I25，200 年 = 1.12 × I100)。雨型做法同 203144 案：各站先算區塊比例再依徐昇權重加總，最大區塊在第 n/2 格。<br>
+  公式：Rziha W = 72(H/L)<sup>0.6</sup>；合理化 Q = CIA/360；SCS Tp = D/2 + 0.6t<sub>c</sub>、Tb = 2.67Tp、qp = 0.208A/Tp；TUH Tp = D/2 + 0.6Tc、Tb = D/2 + 1.2Tc、qp = 2A/(3.6Tb)；R24 = 年最大連續 24 小時序列 (多站依權重加總) 直接做頻率分析；尚無 24 小時資料時以一日暴雨 × k 推估。Horner 參數：大安溪 203144 案 6 站有 2～200 年各自的 P3 參數 (20 年以 10、25 年內插)；其餘站只有 25/50/100 年參數，其他重現期沿用 Excel 換算倍數 (2/5/10/20 年 = 0.60/0.74/0.85/0.95 × I25，200 年 = 1.12 × I100)。雨型做法同 203144 案：各站先算區塊比例再依徐昇權重加總，最大區塊在第 n/2 格。<br>
   自動圈繪：內政部 2025 年版全臺灣 20 公尺網格數值地形模型 DTM（政府資料開放授權條款－第 1 版），經 Priority-Flood+ε 填窪、D8 流向與流量累積前處理；主流線取最長流路，H 為源頭與出口高程差。20 m 網格無法反映人工渠道與小型構造物，重要案件請以實測地形或 LiDAR 複核。<br>
   底圖：內政部國土測繪中心、OpenStreetMap、OpenTopoMap。你輸入的資料只存在自己的瀏覽器，不會上傳。
 </footer>
@@ -384,6 +404,30 @@ function frequency(rain) {
   return { n, s, sl, dists: D, best: ranked[0], obs };
 }
 
+// ===== 設計雨量序列 =====
+// 優先使用「年最大連續 24 小時雨量序列」(多站時依權重加總，某年缺站則對其餘站權重重新正規化)，直接做頻率分析，不乘 k；
+// 沒有 24 小時資料時以「年最大一日雨量 × k」推估 (kind = 'est')；選擇一日序列模式時 kind = '1d'
+function rainSeries(data, g) {
+  const h = data.h24;
+  if (g.serMode !== '1d' && h && h.rows.length >= 10) {
+    const w = h.weights, rows = [];
+    for (const r of h.rows) {
+      let s = 0, ws = 0;
+      for (let i = 0; i < w.length; i++) { const v = r[i + 1]; if (v != null && isFinite(v) && v > 0) { s += w[i] * v; ws += w[i]; } }
+      if (ws > 0) rows.push([r[0], s / ws]);
+    }
+    return { values: rows, kEff: 1, kind: 'h24', stations: h.names };
+  }
+  return { values: data.rain, kEff: g.k, kind: g.serMode === '1d' ? '1d' : 'est' };
+}
+// 異常值檢定 (Water Resources Council Bulletin 17B；Kn 為 5% 顯著水準，樣本數 10～76，取自鹿寮南分析表，n = 23 內插)
+const KN5 = [2.176, 2.234, 2.285, 2.331, 2.371, 2.409, 2.443, 2.475, 2.504, 2.532, 2.557, 2.58, 2.603, 2.6235, 2.644, 2.663, 2.681, 2.698, 2.714, 2.73, 2.745, 2.759, 2.773, 2.786, 2.799, 2.811, 2.823, 2.835, 2.846, 2.857, 2.866, 2.877, 2.887, 2.896, 2.905, 2.914, 2.923, 2.931, 2.94, 2.948, 2.956, 2.964, 2.971, 2.978, 2.986, 2.992, 3.0, 3.006, 3.013, 3.019, 3.025, 3.032, 3.037, 3.044, 3.049, 3.055, 3.061, 3.066, 3.071, 3.076, 3.082, 3.087, 3.092, 3.098, 3.102, 3.107, 3.111];
+function outlierTest(x) {
+  const n = x.length; if (n < 10 || n > 76) return null;
+  const lx = x.map(Math.log10), m = lx.reduce((a, b) => a + b, 0) / n, sd = Math.sqrt(lx.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1));
+  const kn = KN5[n - 10], XH = Math.pow(10, m + kn * sd), XL = Math.pow(10, m - kn * sd), mx = Math.max(...x), mn = Math.min(...x);
+  return { n, kn, m, sd, XH, XL, max: mx, min: mn, high: mx > XH, low: mn < XL };
+}
 // 各重現期使用的 Horner 參數組與倍數 (IDF 表只有 25/50/100 年：2～20 年以 25 年參數折減、200 年以 100 年參數放大，同 Excel)
 const HSET = { 2: [0.6, '25'], 5: [0.74, '25'], 10: [0.85, '25'], 20: [0.95, '25'], 25: [1, '25'], 50: [1, '50'], 100: [1, '100'], 200: [1.12, '100'] };
 const abc = (st, set) => set === '25' ? [st.a25, st.b25, st.c25] : set === '50' ? [st.a50, st.b50, st.c50] : [st.a100, st.b100, st.c100];
@@ -458,8 +502,8 @@ function compute(pt, g, data, src) {
   src = src || [{ st: data.idf.find(r => r.name === pt.station) || data.idf[0], w: 1 }];
   const st = src.reduce((a, b) => (b.w > a.w ? b : a)).st; // 權重最大的雨量站 (供檢核訊息用)
   const W = 72 * Math.pow(Hk / L, 0.6), tc = L / W, tcMin = tc * 60;
-  const fr = frequency(data.rain.map(r => r[1]));
-  const R1 = fr.best.design, R24 = R1.map(v => v * g.k);
+  const ser = rainSeries(data, g), fr = frequency(ser.values.map(r => r[1]));
+  const R1 = fr.best.design, R24 = R1.map(v => v * ser.kEff);
   const I = TS.map(T => horner(src, T, tcMin));
   const Qr = I.map(i => C * i * A / 360);
 
@@ -484,7 +528,7 @@ function compute(pt, g, data, src) {
   const Qa = { rational: Qr, scs: Qs, tuh: Qt }[method];
   const Qhs = Qr.map(q => q * (1 + g.alpha));
   const Qdf = pt.debris ? Qr.map(q => q / (1 - g.cd)) : null;
-  return { A, Akm, L, H: +pt.H, C, st, src, W, tc, tcMin, fr, R1, R24, I, Qr, scs, tuh, Tc, pats, hydro, Qs, Qt, method, Qa, Qhs, Qdf };
+  return { A, Akm, L, H: +pt.H, C, st, src, W, tc, tcMin, ser, fr, R1, R24, I, Qr, scs, tuh, Tc, pats, hydro, Qs, Qt, method, Qa, Qhs, Qdf };
 }
 // ===== ENGINE END =====
 
@@ -492,7 +536,8 @@ function compute(pt, g, data, src) {
 const METHOD_NAME = { rational: '合理化公式法', scs: 'SCS 單位歷線法', tuh: '三角形單位歷線法 (TUH)' };
 const STORE_KEY = 'catchment-peakflow-v1';
 const data = {
-  rain: DEFAULTS.rain.map(r => [r[0], r[1]]),
+  rain: DEFAULTS.rain.map(r => [r[0], r[1]]), // 年最大一日雨量 (原始資料)
+  h24: null, // 年最大連續 24 小時雨量序列 { names, weights (%), rows: [[年, 站1, 站2, …]] }；null 表示尚未輸入
   pattern: DEFAULTS.pattern.slice(),
   idf: DEFAULTS.idf.map(r => ({ region: r[0], name: r[1], a25: r[2], b25: r[3], c25: r[4], a50: r[5], b50: r[6], c50: r[7], a100: r[8], b100: r[9], c100: r[10], note: r[11] || '' })),
   stloc: Object.assign({}, DEFAULTS.stloc || {}, DEFAULTS.libloc || {}), // 站名 → 實際雨量站座標 (tools/build_station_locations.py)
@@ -501,7 +546,7 @@ const data = {
 const LIBROWS = (DEFAULTS.lib || []).map(l => ({ region: l.region, name: l.name, note: l.note, abcT: l.abcT, lib: true, idfName: l.idfName,
   a25: l.abcT[25][0], b25: l.abcT[25][1], c25: l.abcT[25][2], a50: l.abcT[50][0], b50: l.abcT[50][1], c50: l.abcT[50][2], a100: l.abcT[100][0], b100: l.abcT[100][1], c100: l.abcT[100][2] }));
 data.idf.push(...LIBROWS);
-const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3, patMode: 'horner', abcSrc: 'lib' };
+const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3, patMode: 'horner', abcSrc: 'lib', serMode: 'h24' };
 proj4.defs('TM2', '+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +units=m +no_defs');
 const toTM = (lat, lng) => proj4('EPSG:4326', 'TM2', [lng, lat]);
 const fromTM = (x, y) => { const q = proj4('TM2', 'EPSG:4326', [x, y]); return [q[1], q[0]]; };
@@ -514,7 +559,7 @@ let points = [{
 let selId = 'p1', selT = 50, win = 'peak';
 
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ points, selId, g, rain: data.rain, selT })); } catch (e) {}
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ points, selId, g, rain: data.rain, h24: data.h24, selT })); } catch (e) {}
 }
 function load() {
   try {
@@ -523,6 +568,7 @@ function load() {
     firstVisit = false;
     points = s.points; selId = s.selId || points[0].id; Object.assign(g, s.g || {});
     if (Array.isArray(s.rain) && s.rain.length >= 10) data.rain = s.rain;
+    if (s.h24 && Array.isArray(s.h24.rows)) data.h24 = s.h24;
     if (TS.includes(s.selT)) selT = s.selT;
   } catch (e) {}
 }
@@ -872,6 +918,7 @@ function fillForm() {
   if (!p.rainMode) p.rainMode = 'thiessen';
   $('g_pat').value = g.patMode || 'horner';
   $('g_abc').value = g.abcSrc || 'lib';
+  $('ser_mode').value = g.serMode || 'h24';
   $('g_k').value = g.k; $('g_tc1').value = g.tc1; $('g_alpha').value = g.alpha; $('g_cd').value = g.cd;
   const manual = !p.dem; // DTM 圈繪結果改在地圖下方的量測表顯示
   const a = manual && p.poly && p.poly.length > 2 ? geoArea(p.poly) / 1e4 : null, l = manual && p.line && p.line.length > 1 ? geoLen(p.line) / 1000 : null;
@@ -970,21 +1017,25 @@ function renderFreq(r) {
       plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}：T = ${c.parsed.x.toFixed(1)} 年, ${c.parsed.y.toFixed(1)} mm` } } },
       scales: {
         x: { type: 'logarithmic', min: 1, max: 200, title: { display: true, text: '重現期距 T (年，對數)' }, ticks: { callback: v => [1, 2, 5, 10, 20, 50, 100, 200].includes(v) ? v : '' } },
-        y: { title: { display: true, text: '年最大一日雨量 (mm)' } },
+        y: { title: { display: true, text: r.ser.kind === 'h24' ? '年最大連續 24 小時雨量 (mm)' : '年最大一日雨量 (mm)' } },
       }
     }
   });
   themeChart(chF); chF.update();
   let h = `<thead><tr><th>機率分布</th><th>SSE</th><th>SE</th><th>排名</th>${TS.map(T => `<th>${T} 年</th>`).join('')}</tr></thead><tbody>`;
   for (const d of fr.dists) h += `<tr class="${d === best ? 'adopt' : ''}"><td>${d.name}</td><td class="n">${f1(d.sse)}</td><td class="n">${f2(d.se)}</td><td class="n">${d.rank}</td>${d.design.map(v => `<td class="n">${f1(v)}</td>`).join('')}</tr>`;
-  h += `<tr><td>24 hr 設計雨量 R24 = ${g.k.toFixed(2)} × 最佳分布</td><td></td><td></td><td></td>${r.R24.map(v => `<td class="n"><b>${f1(v)}</b></td>`).join('')}</tr></tbody>`;
+  h += `<tr><td>24 hr 設計雨量 R24${r.ser.kind === 'h24' ? '（序列已為 24 小時，不乘 k）' : ` = ${r.ser.kEff.toFixed(2)} × 最佳分布`}</td><td></td><td></td><td></td>${r.R24.map(v => `<td class="n"><b>${f1(v)}</b></td>`).join('')}</tr></tbody>`;
   $('tblFreq').innerHTML = h;
+  const ot = outlierTest(r.ser.values.map(v => v[1]));
+  $('outlierInfo').innerHTML = ot
+    ? `<b>異常值檢定</b>（Bulletin 17B，log10，Kn 5%）：n = ${ot.n}，Kn = ${ot.kn}；高門檻 ${f1(ot.XH)} mm，序列最大 ${f1(ot.max)} mm → ${ot.high ? '<b style="color:var(--bad)">疑似高異常值</b>' : '無高異常值'}；低門檻 ${f1(ot.XL)} mm，序列最小 ${f1(ot.min)} mm → ${ot.low ? '<b style="color:var(--bad)">疑似低異常值</b>' : '無低異常值'}。`
+    : `異常值檢定：樣本數 ${r.ser.values.length} 超出 10～76 筆，未檢定。`;
 }
 function renderTable(r) {
   const i0 = TS.indexOf(selT);
   const rows = [
     ['Horner 降雨強度 I (mm/hr)', r.I, null, `t = ${f1(r.tcMin)} 分`],
-    ['24 hr 設計雨量 R24 (mm)', r.R24, null, `k = ${g.k.toFixed(2)} × 一日暴雨`],
+    ['24 hr 設計雨量 R24 (mm)', r.R24, null, r.ser.kind === 'h24' ? '連續 24 小時序列頻率分析' : `k = ${r.ser.kEff.toFixed(2)} × 一日暴雨`],
     ['合理化公式法 Q (cms)', r.Qr, 'rational', '', css('--rational')],
     ['SCS 單位歷線法 Q (cms)', r.Qs, 'scs', '', css('--river')],
     ['三角形單位歷線 TUH Q (cms)', r.Qt, 'tuh', '', css('--tuh')],
@@ -1001,6 +1052,9 @@ function renderTable(r) {
   $('tblRes').innerHTML = h + '</tbody>';
 
   const fl = [];
+  if (r.ser.kind === 'est') fl.push(['warn', `尚未輸入實測連續 24 小時雨量序列，R24 暫以一日序列 × k = ${r.ser.kEff.toFixed(2)} 推估；有實測資料請貼在「雨量資料」分頁。`]);
+  else if (r.ser.kind === '1d') fl.push(['warn', `目前採用一日序列 × k = ${r.ser.kEff.toFixed(2)} 換算 24 小時雨量。`]);
+  else fl.push(['ok', `R24 採年最大連續 24 小時序列 ${r.ser.values.length} 筆${r.ser.stations && r.ser.stations.length > 1 ? `（${r.ser.stations.join('、')} 加權）` : ''}直接做頻率分析。`]);
   const loc = data.stloc[r.st.name];
   if (r.rain.mode === 'thiessen') {
     fl.push(['ok', `降雨強度與雨型採徐昇式加權：${r.rain.src.map(s => `${s.st.name} ${(s.w * 100).toFixed(1)}%`).join('、')}。`]);
@@ -1056,7 +1110,7 @@ function renderAll() {
   for (const p of points) if (!validate(p).length) { const rs = rainSource(p); results[p.id] = compute(p, g, data, rs.src); results[p.id].rain = rs; }
   lastResults = results;
   const p = cur(), r = results[p.id];
-  renderChips(); fillForm(); drawGeoms(); drawStations(); drawMarkers(results); renderAllTable(results); renderDemInfo(); renderStInfo(); render3d();
+  renderChips(); fillForm(); drawGeoms(); drawStations(); drawMarkers(results); renderAllTable(results); renderDemInfo(); renderStInfo(); renderSerStatus(); render3d();
   $('segT').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.t === selT));
   $('segWin').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.w === win));
   if (!r) {
@@ -1077,14 +1131,55 @@ document.querySelector('.tabs').onclick = e => {
 
 // ===== 雨量資料 =====
 function fillRainText() { $('rainText').value = data.rain.map(r => `${r[0]}\t${r[1]}`).join('\n'); }
-fillRainText();
+function fillH24Text() {
+  const h = data.h24;
+  $('h24Text').value = h ? ['年\t' + h.names.join('\t')].concat(h.rows.map(r => r.map(v => v == null || !isFinite(v) ? '' : v).join('\t'))).join('\n') : '';
+  $('h24W').value = h ? h.weights.map(w => +w.toFixed(4)).join(', ') : '';
+}
+function renderSerStatus() {
+  const r = lastResults[selId], box = $('serStatus'); if (!r) return;
+  const s = r.ser, vals = s.values.map(v => v[1]), n = vals.length, mean = vals.reduce((a, b) => a + b, 0) / n;
+  box.className = 'ser-status' + (s.kind === 'h24' ? ' ok' : '');
+  box.innerHTML = (s.kind === 'h24' ? `目前採用<b>實測連續 24 小時序列</b>` + (s.stations.length > 1 ? `（${esc(s.stations.join('、'))} 加權）` : '')
+    : s.kind === 'est' ? `<b>尚無 24 小時序列</b>，暫以一日序列 × k = ${s.kEff.toFixed(2)} 推估` : `目前採用<b>一日序列 × k = ${s.kEff.toFixed(2)}</b>`)
+    + `：${n} 筆（${s.values[0][0]}～${s.values[n - 1][0]}），平均 ${f1(mean * s.kEff)} mm，最大 ${f1(Math.max(...vals) * s.kEff)} mm；最佳分布 ${esc(r.fr.best.name)}。`;
+}
+$('ser_mode').onchange = e => { g.serMode = e.target.value; save(); renderAll(); };
 $('btnRainApply').onclick = () => {
   const rows = $('rainText').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => l.split(/[\s,，]+/).map(Number));
   const ok = rows.filter(r => r.length >= 2 && isFinite(r[0]) && r[1] > 0).map(r => [r[0], r[1]]);
   if (ok.length < 10) { $('rainMsg').textContent = `只讀到 ${ok.length} 筆有效資料，頻率分析至少需要 10 筆。`; return; }
   data.rain = ok; save(); renderAll();
-  $('rainMsg').textContent = `已套用 ${ok.length} 筆（${ok[0][0]}～${ok[ok.length - 1][0]}），最佳分布：${lastResults[selId]?.fr.best.name || '–'}。`;
+  $('rainMsg').textContent = `已套用 ${ok.length} 筆（${ok[0][0]}～${ok[ok.length - 1][0]}）。`;
 };
+function parseH24(text, wtext) {
+  const lines = text.split(/\r?\n/).map(l => l.replace(/\s+$/, '')).filter(l => l.trim());
+  if (!lines.length) return { err: '沒有資料。' };
+  const split = l => (l.includes('\t') ? l.split('\t') : l.trim().split(/[\s,，]+/)).map(t => t.trim());
+  let names = null, rows = [];
+  for (const l of lines) {
+    const t = split(l), y = Number(t[0]);
+    if (!isFinite(y) || t[0] === '') { if (!names && t.length >= 2) names = t.slice(1).filter(x => x !== ''); continue; }
+    rows.push([y, ...t.slice(1).map(x => (x === '' || x === '-' || x === '－') ? null : Number(x))]);
+  }
+  const ncol = Math.max(0, ...rows.map(r => r.length - 1));
+  if (!ncol) return { err: '每行至少要有「年份」與一個雨量值。' };
+  if (!names || names.length !== ncol) names = ncol === 1 ? ['24 小時序列'] : Array.from({ length: ncol }, (_, i) => `站${i + 1}`);
+  rows = rows.map(r => { const o = [r[0]]; for (let i = 0; i < ncol; i++) o.push(r[i + 1] == null || !isFinite(r[i + 1]) || r[i + 1] <= 0 ? null : r[i + 1]); return o; });
+  let w = (wtext || '').split(/[\s,，、]+/).filter(Boolean).map(Number);
+  if (w.length !== ncol || w.some(v => !isFinite(v) || v < 0) || !w.reduce((a, b) => a + b, 0)) w = new Array(ncol).fill(100 / ncol);
+  const valid = rows.filter(r => r.slice(1).some(v => v != null)).length;
+  if (valid < 10) return { err: `只讀到 ${valid} 年有效資料，頻率分析至少需要 10 年。` };
+  return { names, weights: w, rows };
+}
+$('btnH24Apply').onclick = () => {
+  const res = parseH24($('h24Text').value, $('h24W').value);
+  if (res.err) { $('h24Msg').textContent = res.err; return; }
+  data.h24 = { names: res.names, weights: res.weights, rows: res.rows }; g.serMode = 'h24'; save(); renderAll(); fillH24Text();
+  $('h24Msg').textContent = `已套用 ${res.rows.length} 年、${res.names.length} 站。`;
+};
+$('btnH24Clear').onclick = () => { data.h24 = null; save(); fillH24Text(); renderAll(); $('h24Msg').textContent = '已清除，改以一日序列 × k 推估。'; };
+fillRainText(); fillH24Text();
 
 // ===== 匯入 Excel =====
 $('xlsxFile').onchange = async e => {
@@ -1094,7 +1189,27 @@ $('xlsxFile').onchange = async e => {
     const v = (sh, a) => { const ws = wb.Sheets[sh]; const c = ws && ws[a]; return c ? c.v : undefined; };
     const msg = [];
     const S3 = '一日暴雨頻率與最佳分布', S4 = '單位歷線與洪水合成', S2 = '設計洪峰流量綜合計算表';
-    if (wb.Sheets[S3]) {
+    const S24 = '雨量序列24HR';
+    if (wb.Sheets[S24]) {
+      // v20：一日序列 (B 欄)、各站連續 24 小時序列 (C～E 欄，列 5 為站名、列 6 為徐昇權重 %)、採用模式 (B3)
+      const one = [], cols = ['C', 'D', 'E'], rows = [];
+      for (let r = 7; r < 200; r++) {
+        const y = v(S24, 'A' + r); if (typeof y !== 'number') break;
+        const o = v(S24, 'B' + r); if (typeof o === 'number') one.push([y, o]);
+        rows.push([y, ...cols.map(c => { const x = v(S24, c + r); return typeof x === 'number' && x > 0 ? x : null; })]);
+      }
+      if (one.length >= 10) { data.rain = one; msg.push(`一日雨量 ${one.length} 筆`); }
+      const used = cols.map((c, i) => rows.some(r => r[i + 1] != null));
+      if (used.some(Boolean)) {
+        const idx = used.map((u, i) => u ? i : -1).filter(i => i >= 0);
+        const wts = idx.map(i => { const w = v(S24, cols[i] + '6'); return typeof w === 'number' && w > 0 ? w : 0; });
+        const wsum = wts.reduce((a, b) => a + b, 0);
+        data.h24 = { names: idx.map(i => String(v(S24, cols[i] + '5') || `站${i + 1}`)), weights: wsum ? wts : idx.map(() => 100 / idx.length), rows: rows.map(r => [r[0], ...idx.map(i => r[i + 1])]) };
+        msg.push(`24 小時序列 ${data.h24.names.join('、')}`);
+      } else { data.h24 = null; }
+      g.serMode = String(v(S24, 'B3') || '').includes('一日') ? '1d' : 'h24';
+      const k = v(S3, 'T35'); if (typeof k === 'number') { g.k = k; msg.push(`k = ${k}`); }
+    } else if (wb.Sheets[S3]) {
       const rain = [];
       for (let r = 5; r < 200; r++) { const y = v(S3, 'B' + r), x = v(S3, 'C' + r); if (typeof x !== 'number') break; rain.push([y, x]); }
       if (rain.length >= 10) { data.rain = rain; msg.push(`雨量 ${rain.length} 筆`); }
@@ -1120,7 +1235,7 @@ $('xlsxFile').onchange = async e => {
       const tc1 = v(S2, 'B37'); if (typeof tc1 === 'number') g.tc1 = tc1;
       msg.push(`主控台參數 → ${p.name}`);
     }
-    fillRainText(); save(); renderAll();
+    fillRainText(); fillH24Text(); save(); renderAll();
     renderMapMsg(`已載入「${esc(file.name)}」：${msg.join('、') || '找不到可辨識的工作表'}。`);
   } catch (err) {
     renderMapMsg(`讀取失敗：${esc(err.message)}。請確認是 .xlsx 檔，且工作表名稱與 v17 相同。`);
