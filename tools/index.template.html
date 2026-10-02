@@ -163,7 +163,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 <header class="top">
   <div>
     <h1>集水區洪峰流量圖台</h1>
-    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v20</div>
+    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v21</div>
   </div>
   <div class="spacer"></div>
   <label class="btn" for="xlsxFile" title="讀取 v17 活頁簿的雨量、雨型、IDF 與主控台參數">載入 Excel</label>
@@ -291,6 +291,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
       <div class="tabs" role="tablist">
         <button class="on" data-tab="tabRes">成果表</button>
         <button data-tab="tabFreq">頻率分析</button>
+        <button data-tab="tabHour">每小時雨型</button>
         <button data-tab="tabRain">雨量資料</button>
         <button data-tab="tabAll">全部控制點</button>
       </div>
@@ -304,6 +305,16 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
         <div class="chart-box short"><canvas id="chFreq" aria-label="頻率分析圖"></canvas></div>
         <div class="scroll-x" style="margin-top:12px"><table class="res" id="tblFreq"></table></div>
         <div class="st-info" id="outlierInfo" style="margin-top:10px"></div>
+      </div>
+
+      <div id="tabHour" hidden>
+        <div class="card-head">
+          <div class="seg" id="segUnit" role="group" aria-label="單位"><button data-u="mm" class="on">雨量 mm</button><button data-u="pct">比例 %</button></div>
+          <button class="btn small" id="btnExportH">匯出每小時雨型 CSV</button>
+        </div>
+        <div class="chart-box short"><canvas id="chHour" aria-label="每小時設計雨型"></canvas></div>
+        <div class="scroll-x" style="margin-top:12px"><table class="res" id="tblHour"></table></div>
+        <p class="small muted" id="hourNote" style="margin-bottom:0"></p>
       </div>
 
       <div id="tabRain" hidden>
@@ -1031,6 +1042,49 @@ function renderFreq(r) {
     ? `<b>異常值檢定</b>（Bulletin 17B，log10，Kn 5%）：n = ${ot.n}，Kn = ${ot.kn}；高門檻 ${f1(ot.XH)} mm，序列最大 ${f1(ot.max)} mm → ${ot.high ? '<b style="color:var(--bad)">疑似高異常值</b>' : '無高異常值'}；低門檻 ${f1(ot.XL)} mm，序列最小 ${f1(ot.min)} mm → ${ot.low ? '<b style="color:var(--bad)">疑似低異常值</b>' : '無低異常值'}。`
     : `異常值檢定：樣本數 ${r.ser.values.length} 超出 10～76 筆，未檢定。`;
 }
+// ===== 每小時雨型 =====
+// 做法同 203144 案 D = 1.0 hr：各站以各重現期自有 Horner 參數求 24 小時累積雨量，切成 24 個 1 小時區塊，各站比例依徐昇權重加總，
+// 最大區塊置於第 12 小時，其餘交替排列；各小時雨量 = 比例 × 該重現期 R24
+let chHr = null, hourUnit = 'mm';
+function hourlyData(r) { return TS.map((T, i) => { const pat = hornerPattern(r.src, T, 24, 60); return { T, pat, mm: pat.map(v => v * r.R24[i]) }; }); }
+function renderHourly(r) {
+  const H = hourlyData(r), i = TS.indexOf(selT), sel = H[i], pk = sel.pat.indexOf(Math.max(...sel.pat));
+  const cum = []; sel.pat.reduce((a, v, k) => (cum[k] = a + v, a + v), 0);
+  const labels = sel.pat.map((_, k) => String(k + 1));
+  const cfg = {
+    data: {
+      labels, datasets: [
+        { type: 'bar', label: `${selT} 年每小時雨量 (mm)`, data: sel.mm, yAxisID: 'y', backgroundColor: sel.mm.map((_, k) => k === pk ? css('--river') : css('--rain')), barPercentage: 0.9, categoryPercentage: 0.95 },
+        { type: 'line', label: '累積比例 (%)', data: cum.map(v => v * 100), yAxisID: 'y2', borderColor: css('--tuh'), pointRadius: 0, borderWidth: 2, tension: 0.2 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } }, tooltip: { callbacks: { title: it => `第 ${it[0].label} 小時`, label: c => `${c.dataset.label}：${c.parsed.y.toFixed(c.datasetIndex === 0 ? 1 : 1)}` } } },
+      scales: {
+        x: { title: { display: true, text: '時間 (小時，由暴雨開始起算)' } },
+        y: { position: 'left', beginAtZero: true, title: { display: true, text: '每小時雨量 (mm)' } },
+        y2: { position: 'right', min: 0, max: 100, title: { display: true, text: '累積 (%)' }, grid: { drawOnChartArea: false } },
+      }
+    }
+  };
+  if (chHr) chHr.destroy();
+  chHr = new Chart($('chHour'), cfg); themeChart(chHr); chHr.update();
+  const pct = hourUnit === 'pct';
+  let h = `<thead><tr><th>小時</th>${TS.map(T => `<th class="${T === selT ? 'hl' : ''}">${T} 年</th>`).join('')}</tr></thead><tbody>`;
+  for (let k = 0; k < 24; k++) h += `<tr class="${k === pk ? 'adopt' : ''}"><td>${k + 1}</td>${H.map(x => `<td class="n${x.T === selT ? ' hl' : ''}">${pct ? (x.pat[k] * 100).toFixed(3) : x.mm[k].toFixed(1)}</td>`).join('')}</tr>`;
+  h += `<tr><td>合計</td>${H.map(x => `<td class="n"><b>${pct ? (x.pat.reduce((a, b) => a + b, 0) * 100).toFixed(1) : x.mm.reduce((a, b) => a + b, 0).toFixed(1)}</b></td>`).join('')}</tr></tbody>`;
+  $('tblHour').innerHTML = h;
+  const srcTxt = r.rain.mode === 'thiessen' ? `徐昇加權（${r.rain.src.map(x => `${x.st.name} ${(x.w * 100).toFixed(1)}%`).join('、')}）` : r.st.name;
+  $('hourNote').innerHTML = `${selT} 年：第 ${pk + 1} 小時（${pk}:00～${pk + 1}:00）為最大區塊，占 24 小時雨量 ${(sel.pat[pk] * 100).toFixed(2)}%（${f1(sel.mm[pk])} mm）；24 小時雨量 R24 = ${f1(r.R24[i])} mm。雨量站：${esc(srcTxt)}。`;
+}
+$('segUnit').onclick = e => { const b = e.target.closest('button'); if (!b) return; hourUnit = b.dataset.u; $('segUnit').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); const r = lastResults[selId]; if (r) renderHourly(r); };
+$('btnExportH').onclick = () => {
+  const r = lastResults[selId]; if (!r) return; const H = hourlyData(r);
+  let c = '小時,' + H.map(x => `${x.T}年_雨量mm,${x.T}年_比例%`).join(',') + '\n';
+  for (let k = 0; k < 24; k++) c += `${k + 1},` + H.map(x => `${x.mm[k].toFixed(3)},${(x.pat[k] * 100).toFixed(4)}`).join(',') + '\n';
+  download(`${cur().name}_每小時雨型.csv`, c);
+};
 function renderTable(r) {
   const i0 = TS.indexOf(selT);
   const rows = [
@@ -1117,7 +1171,7 @@ function renderAll() {
     $('kpis').innerHTML = `<div class="kpi" style="grid-column:1/-1"><div class="k">無法計算</div><div>${validate(p).join('、')}</div></div>`;
     return;
   }
-  renderKpis(r); renderHydro(r); renderTable(r); renderFreq(r);
+  renderKpis(r); renderHydro(r); renderTable(r); renderFreq(r); renderHourly(r);
   if (!draw) renderMapMsg();
 }
 
@@ -1125,8 +1179,9 @@ function renderAll() {
 document.querySelector('.tabs').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['tabRes', 'tabFreq', 'tabRain', 'tabAll'].forEach(id => $(id).hidden = id !== b.dataset.tab);
+  ['tabRes', 'tabFreq', 'tabHour', 'tabRain', 'tabAll'].forEach(id => $(id).hidden = id !== b.dataset.tab);
   if (b.dataset.tab === 'tabFreq' && chF) chF.resize();
+  if (b.dataset.tab === 'tabHour' && chHr) chHr.resize();
 };
 
 // ===== 雨量資料 =====
