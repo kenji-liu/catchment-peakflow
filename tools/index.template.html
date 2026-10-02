@@ -160,7 +160,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 <header class="top">
   <div>
     <h1>集水區洪峰流量圖台</h1>
-    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v18</div>
+    <div class="sub">20 m DTM 自動圈繪集水區・合理化公式・SCS 單位歷線・三角形單位歷線 (TUH)｜計算邏輯同 Excel v19</div>
   </div>
   <div class="spacer"></div>
   <label class="btn" for="xlsxFile" title="讀取 v17 活頁簿的雨量、雨型、IDF 與主控台參數">載入 Excel</label>
@@ -254,13 +254,14 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
       <details class="more">
         <summary>進階參數（全部控制點共用）</summary>
         <div class="form">
+          <div class="field wide"><label for="g_abc">Horner 參數來源</label><select id="g_abc"><option value="lib">203144 案 106 年報告 P3（各重現期自有 a、b、c）優先，其餘站用 IDF 表</option><option value="idf">水利署 107 年 IDF 表（僅 25/50/100 年，其餘以倍數換算）</option></select></div>
           <div class="field wide"><label for="g_pat">設計雨型</label><select id="g_pat"><option value="horner">Horner 公式交替區塊法（依雨量站，預設）</option><option value="fixed">固定雨型（Excel 203144 案比例）</option></select></div>
           <div class="field"><label for="g_k">一日暴雨 → 24 hr 轉換係數 k</label><input id="g_k" type="number" step="0.01" min="0.5"></div>
           <div class="field"><label for="g_tc1">坡面集流時間 Tc1 (hr，TUH 用)</label><input id="g_tc1" type="number" step="0.01" min="0"></div>
           <div class="field"><label for="g_alpha">高含砂增量比 α</label><input id="g_alpha" type="number" step="0.01" min="0"></div>
           <div class="field"><label for="g_cd">土石流體積濃度 Cd</label><input id="g_cd" type="number" step="0.01" min="0" max="0.9"></div>
         </div>
-        <p class="small muted" style="margin:10px 0 0">雨型時距 D = 0.15 hr（9 分鐘），共 160 時階：由 Horner 公式求 24 小時累積雨量曲線 P(t) = I(t)·t/60，切成區塊後以交替區塊法排列（最大區塊在 12:00～12:09），再乘以頻率分析的 R24。一日暴雨序列在右側「雨量資料」分頁編修。</p>
+        <p class="small muted" style="margin:10px 0 0">雨型時距 D = 0.15 hr（9 分鐘），共 160 時階，做法同大安溪 203144 案：每站以自己各重現期的 Horner 參數求 24 小時累積雨量 P(t) = I(t)·t/60，切成區塊並除以 24 小時總量，各站比例依徐昇權重加總，最大區塊放在第 80 格（11:51～12:00），其餘交替排列，再乘以頻率分析的 R24。一日暴雨序列在右側「雨量資料」分頁編修。</p>
       </details>
     </section>
   </div>
@@ -319,7 +320,7 @@ footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
 </div>
 
 <footer>
-  公式：Rziha W = 72(H/L)<sup>0.6</sup>；合理化 Q = CIA/360；SCS Tp = D/2 + 0.6t<sub>c</sub>、Tb = 2.67Tp、qp = 0.208A/Tp；TUH Tp = D/2 + 0.6Tc、Tb = D/2 + 1.2Tc、qp = 2A/(3.6Tb)；R24 = k × 一日暴雨。各重現期合理化降雨強度沿用 Excel 換算倍數 (2/5/10/20 年 = 0.60/0.74/0.85/0.95 × I25，200 年 = 1.12 × I100)。<br>
+  公式：Rziha W = 72(H/L)<sup>0.6</sup>；合理化 Q = CIA/360；SCS Tp = D/2 + 0.6t<sub>c</sub>、Tb = 2.67Tp、qp = 0.208A/Tp；TUH Tp = D/2 + 0.6Tc、Tb = D/2 + 1.2Tc、qp = 2A/(3.6Tb)；R24 = k × 一日暴雨。Horner 參數：大安溪 203144 案 6 站有 2～200 年各自的 P3 參數 (20 年以 10、25 年內插)；其餘站只有 25/50/100 年參數，其他重現期沿用 Excel 換算倍數 (2/5/10/20 年 = 0.60/0.74/0.85/0.95 × I25，200 年 = 1.12 × I100)。雨型做法同 203144 案：各站先算區塊比例再依徐昇權重加總，最大區塊在第 n/2 格。<br>
   自動圈繪：內政部 2025 年版全臺灣 20 公尺網格數值地形模型 DTM（政府資料開放授權條款－第 1 版），經 Priority-Flood+ε 填窪、D8 流向與流量累積前處理；主流線取最長流路，H 為源頭與出口高程差。20 m 網格無法反映人工渠道與小型構造物，重要案件請以實測地形或 LiDAR 複核。<br>
   底圖：內政部國土測繪中心、OpenStreetMap、OpenTopoMap。你輸入的資料只存在自己的瀏覽器，不會上傳。
 </footer>
@@ -383,23 +384,38 @@ function frequency(rain) {
   return { n, s, sl, dists: D, best: ranked[0], obs };
 }
 
-// 各重現期使用的 Horner 參數組與倍數 (同 Excel：2～20 年以 25 年參數折減、200 年以 100 年參數放大)
+// 各重現期使用的 Horner 參數組與倍數 (IDF 表只有 25/50/100 年：2～20 年以 25 年參數折減、200 年以 100 年參數放大，同 Excel)
 const HSET = { 2: [0.6, '25'], 5: [0.74, '25'], 10: [0.85, '25'], 20: [0.95, '25'], 25: [1, '25'], 50: [1, '50'], 100: [1, '100'], 200: [1.12, '100'] };
 const abc = (st, set) => set === '25' ? [st.a25, st.b25, st.c25] : set === '50' ? [st.a50, st.b50, st.c50] : [st.a100, st.b100, st.c100];
-// src = [{ st, w }]：單站時 w = 1；徐昇式時為各站面積權重。面積平均降雨強度 = Σ w·a/(t+b)^c
-function hornerI(src, set, tmin) {
+// 取站 st 在重現期 T 的 [倍數 f, a, b, c]，降雨強度 I(t) = f·a/(t+b)^c。
+// 203144 案站 (有 abcT)：2、5、10、25、50、100、200 年各有自己的參數；20 年未提供，以 10 與 25 年參數對 ln T 內插
+function abcT(st, T) {
+  const m = st.abcT;
+  if (m) {
+    if (m[T]) return [1, ...m[T]];
+    if (T === 20 && m[10] && m[25]) { const l = Math.log(20 / 10) / Math.log(25 / 10); return [1, ...m[10].map((v, i) => v + (m[25][i] - v) * l)]; }
+  }
+  const [f, set] = HSET[T]; return [f, ...abc(st, set)];
+}
+// src = [{ st, w }]：單站時 w = 1；徐昇式時為各站面積權重。面積平均降雨強度 = Σ w·I_i(t)
+function horner(src, T, tmin) {
   let s = 0;
-  for (const { st, w } of src) { const [a, b, c] = abc(st, set); if (w) s += w * a / Math.pow(tmin + b, c); }
+  for (const { st, w } of src) if (w) { const [f, a, b, c] = abcT(st, T); s += w * f * a / Math.pow(tmin + b, c); }
   return s;
 }
-function horner(src, T, tmin) { const [f, set] = HSET[T]; return f * hornerI(src, set, tmin); }
-// 24 小時 Horner 雨型 (交替區塊法)：P(t) = I(t)·t/60，切成 n 個 dt 分鐘區塊，
-// 最大區塊置於第 floor(n/2)+1 格，其餘依序右、左交替排列；回傳各區塊佔 24 小時雨量的比例
+// 24 小時 Horner 雨型 (交替區塊法，同大安溪 203144 案)：
+//  1. 每站以自己的參數求累積雨量 P(t) = I(t)·t/60，切成 n 個 dt 分鐘區塊，除以 24 小時總量得各區塊比例
+//  2. 各站比例依徐昇權重加總 (先正規化再加權)
+//  3. 最大區塊放在第 n/2 格，其餘依序右、左交替排列
 function hornerPattern(src, T, n = 160, dt = 9) {
-  const set = HSET[T][1], P = t => t > 0 ? hornerI(src, set, t) * t / 60 : 0, tot = P(n * dt);
-  const inc = []; for (let k = 1; k <= n; k++) inc.push((P(k * dt) - P((k - 1) * dt)) / tot);
-  const m = Math.floor(n / 2) + 1, out = new Array(n);
-  for (let j = 1; j <= n; j++) out[j - 1] = inc[(j === m ? 1 : j > m ? 2 * (j - m) : Math.min(2 * (m - j) + 1, n)) - 1];
+  const ratio = new Array(n).fill(0);
+  for (const { st, w } of src) {
+    if (!w) continue;
+    const [f, a, b, c] = abcT(st, T), P = t => t > 0 ? f * a / Math.pow(t + b, c) * t / 60 : 0, tot = P(n * dt);
+    for (let k = 1; k <= n; k++) ratio[k - 1] += w * (P(k * dt) - P((k - 1) * dt)) / tot;
+  }
+  const m = Math.floor(n / 2), out = new Array(n);
+  for (let j = 1; j <= n; j++) out[j - 1] = ratio[Math.min(j === m ? 1 : j > m ? 2 * (j - m) : 2 * (m - j) + 1, n) - 1];
   return out;
 }
 // 徐昇式多邊形：在集水區內規則取樣，每個樣點歸給最近的雨量站 (平面座標，公尺)
@@ -479,9 +495,13 @@ const data = {
   rain: DEFAULTS.rain.map(r => [r[0], r[1]]),
   pattern: DEFAULTS.pattern.slice(),
   idf: DEFAULTS.idf.map(r => ({ region: r[0], name: r[1], a25: r[2], b25: r[3], c25: r[4], a50: r[5], b50: r[6], c50: r[7], a100: r[8], b100: r[9], c100: r[10], note: r[11] || '' })),
-  stloc: DEFAULTS.stloc || {}, // IDF 站名 → 實際雨量站座標 (tools/build_station_locations.py)
+  stloc: Object.assign({}, DEFAULTS.stloc || {}, DEFAULTS.libloc || {}), // 站名 → 實際雨量站座標 (tools/build_station_locations.py)
 };
-const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3, patMode: 'horner' };
+// 大安溪 203144 案 (106 年報告) 各站 P3 Horner 參數：2、5、10、25、50、100、200 年各有自己的 a、b、c
+const LIBROWS = (DEFAULTS.lib || []).map(l => ({ region: l.region, name: l.name, note: l.note, abcT: l.abcT, lib: true, idfName: l.idfName,
+  a25: l.abcT[25][0], b25: l.abcT[25][1], c25: l.abcT[25][2], a50: l.abcT[50][0], b50: l.abcT[50][1], c50: l.abcT[50][2], a100: l.abcT[100][0], b100: l.abcT[100][1], c100: l.abcT[100][2] }));
+data.idf.push(...LIBROWS);
+const g = { k: DEFAULTS.k, tc1: DEFAULTS.inp.B37, alpha: 0.3, cd: 0.3, patMode: 'horner', abcSrc: 'lib' };
 proj4.defs('TM2', '+proj=tmerc +lat_0=0 +lon_0=121 +k=0.9999 +x_0=250000 +y_0=0 +ellps=GRS80 +units=m +no_defs');
 const toTM = (lat, lng) => proj4('EPSG:4326', 'TM2', [lng, lat]);
 const fromTM = (x, y) => { const q = proj4('TM2', 'EPSG:4326', [x, y]); return [q[1], q[0]]; };
@@ -642,10 +662,14 @@ function stationPopup(g) {
 }
 // 每個實際雨量站取一列 Horner 參數 (優先取非代表站的站名)
 function gaugeList() {
-  const gs = new Map();
+  const useLib = g.abcSrc !== 'idf', gs = new Map();
   for (const s of data.idf) {
     const loc = data.stloc[s.name]; if (!loc) continue;
-    const c = gs.get(loc.gid); if (!c || (c.loc.sub && !loc.sub)) gs.set(loc.gid, { st: s, loc });
+    if (s.lib && !useLib) continue;
+    const c = gs.get(loc.gid);
+    // 同一雨量站有多列時：203144 案參數優先 (若啟用)，其次取非代表站的站名
+    const better = !c || (s.lib && !c.st.lib) || (!!s.lib === !!c.st.lib && c.loc.sub && !loc.sub);
+    if (better) gs.set(loc.gid, { st: s, loc });
   }
   return [...gs.values()];
 }
@@ -655,7 +679,7 @@ function rainSource(p) {
   const single = { mode: 'single', src: [{ st: data.idf.find(r => r.name === p.station) || data.idf[0], w: 1 }] };
   if ((p.rainMode || 'thiessen') !== 'thiessen') return single;
   if (!p.poly || p.poly.length < 3) return { ...single, fallback: true };
-  const key = [p.poly.length, p.poly[0], p.poly[p.poly.length >> 1], data.idf.length, Object.keys(data.stloc).length].join('|');
+  const key = [p.poly.length, p.poly[0], p.poly[p.poly.length >> 1], data.idf.length, Object.keys(data.stloc).length, g.abcSrc].join('|');
   let th = thCache.get(p.id);
   if (!th || th.key !== key) {
     const G = gaugeList(), poly = p.poly.map(q => toTM(q[0], q[1]));
@@ -847,6 +871,7 @@ function fillForm() {
   $('f_debris').value = p.debris ? '1' : '0';
   if (!p.rainMode) p.rainMode = 'thiessen';
   $('g_pat').value = g.patMode || 'horner';
+  $('g_abc').value = g.abcSrc || 'lib';
   $('g_k').value = g.k; $('g_tc1').value = g.tc1; $('g_alpha').value = g.alpha; $('g_cd').value = g.cd;
   const manual = !p.dem; // DTM 圈繪結果改在地圖下方的量測表顯示
   const a = manual && p.poly && p.poly.length > 2 ? geoArea(p.poly) / 1e4 : null, l = manual && p.line && p.line.length > 1 ? geoLen(p.line) / 1000 : null;
@@ -860,6 +885,7 @@ for (const [k, id] of Object.entries(F)) $(id).addEventListener('change', e => {
 });
 $('f_debris').onchange = e => { cur().debris = e.target.value === '1'; save(); renderAll(); };
 $('g_pat').onchange = e => { g.patMode = e.target.value; save(); renderAll(); };
+$('g_abc').onchange = e => { g.abcSrc = e.target.value; save(); renderAll(); };
 for (const [k, id] of [['k', 'g_k'], ['tc1', 'g_tc1'], ['alpha', 'g_alpha'], ['cd', 'g_cd']])
   $(id).addEventListener('change', e => { g[k] = +e.target.value; save(); renderAll(); });
 
@@ -983,7 +1009,7 @@ function renderTable(r) {
     const dk = distKm([cur().lat, cur().lng], [loc.lat, loc.lng]);
     if (loc.sub || dk > 10) fl.push(['warn', `Horner 參數實際取自 ${loc.gname} 雨量站（${loc.gid}${loc.sub ? '，代表站' : ''}），距控制點 ${f1(dk)} km，請確認代表性。`]);
   }
-  if (r.st.b25 === 0) fl.push(['warn', `${r.st.name} 的 Horner 參數 b = 0，短延時強度偏高（I25 = ${f1(r.I[4])} mm/hr），建議對照水利署 107 年原始報告確認。`]);
+  if (r.st.b25 === 0) fl.push(['warn', `${r.st.name} 的 Horner 參數 b = 0，短延時強度偏高（I25 = ${f1(r.I[4])} mm/hr），建議對照水利署原報告確認。`]);
   if (r.tcMin < 10) fl.push(['warn', `集流時間僅 ${f1(r.tcMin)} 分鐘（只計河道流時間），合理化公式未加坡面流時間。`]);
   const hack = 1.4 * Math.pow(r.Akm / 2.59, 0.6) * 1.609;
   if (r.L < hack * 0.5) fl.push(['warn', `主流長度 ${f2(r.L)} km 相對面積 ${f2(r.Akm)} km² 偏短（Hack 經驗式約 ${f1(hack)} km），請核對地形量測。`]);
@@ -1085,7 +1111,7 @@ $('xlsxFile').onchange = async e => {
         const n = c => +v('IDF_Table', c + r);
         idf.push({ region: v('IDF_Table', 'A' + r) || '', name: nm, a25: n('C'), b25: n('D'), c25: n('E'), a50: n('F'), b50: n('G'), c50: n('H'), a100: n('I'), b100: n('J'), c100: n('K'), note: v('IDF_Table', 'L' + r) || '' });
       }
-      if (idf.length) { data.idf = idf; fillStations(); msg.push(`IDF ${idf.length} 站`); }
+      if (idf.length) { data.idf = idf.concat(LIBROWS); fillStations(); msg.push(`IDF ${idf.length} 站`); }
     }
     if (wb.Sheets[S2]) {
       const p = cur();
