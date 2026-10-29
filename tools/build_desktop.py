@@ -5,10 +5,13 @@
 3. 下載 CDN 函式庫 (Leaflet、Chart.js、SheetJS、proj4、pako、three.js、d3-delaunay) 到 desktop/site/vendor/，
    並把 index.html 內的網址改為本機路徑，讓計算功能離線可用 (底圖與正射影像仍需連網)
 4. 產生應用程式圖示 desktop/icon.png、desktop/icon.ico
+5. 把上層資料夾版本最新的 Excel（…_vNN_….xlsx）複製到 desktop/excel/，安裝後位於安裝目錄的 Excel 資料夾
 
 之後在 desktop/ 執行 npm install、npm run dist 產生安裝檔。
 """
+import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -84,6 +87,15 @@ def main():
     html = html.replace('<div class="sub">', '<div class="sub">桌面版｜', 1)
     open(os.path.join(SITE, "index.html"), "w", encoding="utf-8").write(html)
     icon()
+    xl = glob.glob(os.path.join(os.path.dirname(REPO), "*_v[0-9]*.xlsx"))
+    xdir = os.path.join(DESK, "excel")
+    if os.path.isdir(xdir):
+        shutil.rmtree(xdir)
+    os.makedirs(xdir)
+    if xl:
+        latest = max(xl, key=lambda f: int(re.search(r"_v(\d+)_", os.path.basename(f)).group(1)))
+        shutil.copy2(latest, xdir)
+        print("excel", os.path.basename(latest))
     print("desktop/site 完成")
 
 

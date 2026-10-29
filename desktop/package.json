@@ -20,6 +20,7 @@
     "copyright": "kenji-liu",
     "directories": { "output": "dist" },
     "files": ["main.js", "icon.png", "site/**/*", "package.json"],
+    "extraFiles": [{ "from": "excel", "to": "Excel" }],
     "win": {
       "icon": "icon.ico",
       "artifactName": "CatchmentPeakflow-${version}-${arch}.${ext}",
