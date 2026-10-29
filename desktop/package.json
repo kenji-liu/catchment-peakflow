@@ -1,0 +1,41 @@
+{
+  "name": "catchment-peakflow",
+  "productName": "集水區洪峰流量圖台",
+  "version": "1.0.0",
+  "description": "集水區洪峰流量圖台：DTM 自動圈繪集水區、Horner／無因次降雨強度、合理化公式、SCS 與三角形單位歷線",
+  "author": "kenji-liu",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis zip --x64"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "tw.kenji.catchment-peakflow",
+    "productName": "集水區洪峰流量圖台",
+    "copyright": "kenji-liu",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "icon.png", "site/**/*", "package.json"],
+    "win": {
+      "icon": "icon.ico",
+      "artifactName": "CatchmentPeakflow-${version}-${arch}.${ext}",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "集水區洪峰流量圖台",
+      "artifactName": "CatchmentPeakflow-Setup-${version}.${ext}",
+      "installerLanguages": ["zh_TW"],
+      "language": "1028",
+      "unicode": true
+    }
+  }
+}
